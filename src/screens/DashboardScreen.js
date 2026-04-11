@@ -1,0 +1,400 @@
+// DashboardScreen - Main care gaps dashboard
+
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  SafeAreaView,
+  ActivityIndicator,
+  RefreshControl,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import fhirService from '../services/fhirService';
+import careGapsService from '../services/careGapsService';
+import aiService from '../services/aiService';
+import oauthService from '../services/oauthService';
+import SummaryHeader from '../components/SummaryHeader';
+import CareGapCard from '../components/CareGapCard';
+import { MEASURE_STATUS } from '../constants/qualityMeasures';
+
+const DashboardScreen = ({ navigation }) => {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+  const [patientData, setPatientData] = useState(null);
+  const [measureResults, setMeasureResults] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [patientContext, setPatientContext] = useState(null);
+
+  // Load data on mount
+  useEffect(() => {
+    loadPatientData();
+  }, []);
+
+  const loadPatientData = async () => {
+    try {
+      setError(null);
+      
+      // Fetch all patient data from FHIR
+      const data = await fhirService.getAllPatientData();
+      setPatientData(data);
+
+      // Build patient context for AI
+      const context = aiService.buildPatientContext(data.patient, data.conditions);
+      setPatientContext(context);
+
+      // Analyze quality measures
+      const results = careGapsService.analyzeAllMeasures(data);
+      const sortedResults = careGapsService.sortByPriority(results);
+      setMeasureResults(sortedResults);
+
+      // Get summary stats
+      const summaryStats = careGapsService.getSummary(results);
+      setSummary(summaryStats);
+
+    } catch (err) {
+      console.error('Error loading patient data:', err);
+      setError(err.message || 'Failed to load health data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadPatientData();
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to disconnect?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: () => {
+            oauthService.logout();
+            navigation.replace('Login');
+          },
+        },
+      ]
+    );
+  };
+
+  const getPatientName = () => {
+    if (!patientData?.patient?.name?.[0]) return null;
+    const name = patientData.patient.name[0];
+    return name.given?.[0] || name.text || null;
+  };
+
+  // Filter results by status
+  const actionNeeded = measureResults.filter(
+    r => r.status === MEASURE_STATUS.DUE || r.status === MEASURE_STATUS.OVERDUE
+  );
+  const complete = measureResults.filter(
+    r => r.status === MEASURE_STATUS.COMPLETE
+  );
+  const notApplicable = measureResults.filter(
+    r => r.status === MEASURE_STATUS.NOT_APPLICABLE
+  );
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar style="dark" />
+        <ActivityIndicator size="large" color="#6366F1" />
+        <Text style={styles.loadingText}>Loading your health data...</Text>
+        <Text style={styles.loadingSubtext}>
+          Connecting to Epic FHIR and analyzing your records
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.errorContainer}>
+        <StatusBar style="dark" />
+        <Text style={styles.errorIcon}>⚠️</Text>
+        <Text style={styles.errorTitle}>Unable to Load Data</Text>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadPatientData}>
+          <Text style={styles.retryButtonText}>Try Again</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="dark" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.headerTitle}>HealthView</Text>
+          <Text style={styles.headerSubtitle}>Your Preventive Care Dashboard</Text>
+        </View>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutIcon}>
+          <Text style={styles.logoutIconText}>👤</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#6366F1']}
+          />
+        }
+      >
+        {/* Summary Card */}
+        {summary && (
+          <SummaryHeader
+            summary={summary}
+            patientName={getPatientName()}
+          />
+        )}
+
+        {/* Action Needed Section */}
+        {actionNeeded.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🎯 Action Needed</Text>
+            <Text style={styles.sectionSubtitle}>
+              These screenings are due or overdue
+            </Text>
+            {actionNeeded.map((result, index) => (
+              <CareGapCard
+                key={result.measure.id}
+                measureResult={result}
+                patientContext={patientContext}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* Up to Date Section */}
+        {complete.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>✅ Up to Date</Text>
+            <Text style={styles.sectionSubtitle}>
+              You're current on these screenings
+            </Text>
+            {complete.map((result, index) => (
+              <CareGapCard
+                key={result.measure.id}
+                measureResult={result}
+                patientContext={patientContext}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* Not Applicable Section */}
+        {notApplicable.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>➖ Not Applicable</Text>
+            <Text style={styles.sectionSubtitle}>
+              These don't apply based on your age, gender, or conditions
+            </Text>
+            {notApplicable.map((result, index) => (
+              <CareGapCard
+                key={result.measure.id}
+                measureResult={result}
+                patientContext={patientContext}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* Educational Footer */}
+        <View style={styles.educationalFooter}>
+          <Text style={styles.educationalTitle}>
+            💡 About These Recommendations
+          </Text>
+          <Text style={styles.educationalText}>
+            These preventive care measures are based on guidelines from the CDC, 
+            USPSTF, and CMS quality programs like HEDIS. They're designed to catch 
+            health issues early when they're most treatable.
+          </Text>
+          <Text style={styles.educationalText}>
+            Always discuss your preventive care plan with your healthcare provider, 
+            as individual recommendations may vary based on your complete health history.
+          </Text>
+        </View>
+
+        {/* Data Source Info */}
+        <View style={styles.dataSource}>
+          <Text style={styles.dataSourceText}>
+            Data from Epic FHIR • Last updated: {new Date().toLocaleDateString()}
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    padding: 40,
+  },
+  loadingText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginTop: 20,
+  },
+  loadingSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    padding: 40,
+  },
+  errorIcon: {
+    fontSize: 64,
+    marginBottom: 20,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  retryButton: {
+    backgroundColor: '#6366F1',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  logoutButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+  },
+  logoutButtonText: {
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  logoutIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoutIconText: {
+    fontSize: 20,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  educationalFooter: {
+    backgroundColor: '#EEF2FF',
+    padding: 20,
+    borderRadius: 16,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  educationalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4338CA',
+    marginBottom: 12,
+  },
+  educationalText: {
+    fontSize: 14,
+    color: '#4B5563',
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  dataSource: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  dataSourceText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+});
+
+export default DashboardScreen;
