@@ -70,5 +70,8 @@ Rather than receiving data from the Dashboard via params, these screens call `fh
 ### DischargeScreen filters encounters client-side
 `fhirService.getEncounters()` fetches `/Encounter?_sort=-date&_count=20` and then filters for `class.code === 'IMP' | 'EMER' | 'ACUTE'` in JavaScript. Epic's sandbox doesn't reliably support server-side class filtering via query params, so client-side filtering is more robust.
 
+### DischargeScreen uses `Promise.allSettled` for its four independent fetches
+Encounters, medications, document references, and care plans are all fetched in parallel with `allSettled`. Epic's sandbox may return 404 or empty bundles for DocumentReference and CarePlan if the test patient has no records — `allSettled` ensures a missing document list doesn't break the encounter display.
+
 ### SDOHScreen communicates back via callback, not params
 Instead of `navigation.navigate('Dashboard', { sdohResult })`, the SDOH screen calls `route.params.onComplete(result)` before `navigation.goBack()`. This keeps the Dashboard's state management self-contained and avoids issues with React Navigation's param merging behavior on `goBack`.

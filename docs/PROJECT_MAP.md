@@ -75,7 +75,7 @@ LoginScreen
 DashboardScreen (on mount)
   └── fhirService.getAllPatientData()
         ├── Patient, Condition, Observation, Immunization, AllergyIntolerance
-        ├── MedicationRequest (active)
+        ├── MedicationRequest (active), Procedure (completed)
         └── SDOH (social-history obs + survey obs + Z-code conditions)
   └── careGapsService.analyzeAllMeasures(data)
   └── aiService.buildPatientContext(patient, conditions, sdoh)
@@ -85,7 +85,11 @@ MedicationsScreen (on mount, independent)
   └── fhirService.getMedications()
 
 DischargeScreen (on mount, independent)
-  └── fhirService.getEncounters() + fhirService.getMedications() (parallel)
+  └── fhirService.getEncounters()
+  └── fhirService.getMedications()
+  └── fhirService.getDocumentReferences()   (LOINC 18842-5 discharge summaries)
+  └── fhirService.getCarePlans()            (active care plans)
+  (all four run in parallel via Promise.allSettled)
 ```
 
 ---
@@ -108,7 +112,10 @@ DischargeScreen (on mount, independent)
 | Observation | `?patient=&category=social-history` | SDOH FHIR data |
 | Observation | `?patient=&category=survey` | SDOH screening surveys |
 | Immunization | `?patient=` | Flu shot |
-| AllergyIntolerance | `?patient=` | (fetched, not yet surfaced in UI) |
-| MedicationRequest | `?patient=&status=active` | Medications screen |
-| Encounter | `?patient=&_sort=-date&_count=20` | Discharge screen (filtered client-side for IMP/EMER) |
+| AllergyIntolerance | `?patient=` | Fetched, not yet surfaced in UI |
+| MedicationRequest | `?patient=&status=active` | Medications screen + Discharge card |
+| Procedure | `?patient=&status=completed` | Colonoscopy / mammogram care gap measures |
+| Encounter | `?patient=&_sort=-date&_count=20` | Discharge screen (filtered client-side for IMP/EMER/ACUTE) |
+| DocumentReference | `?patient=&type=18842-5&_sort=-date&_count=10` | Discharge summary documents |
+| CarePlan | `?patient=&status=active` | Active care plans on Discharge screen |
 | Practitioner | `/{ref}` (from generalPractitioner) | Provider phone number |

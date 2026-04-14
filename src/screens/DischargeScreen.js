@@ -20,6 +20,8 @@ const DischargeScreen = ({ navigation, route }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [encounters, setEncounters] = useState([]);
   const [medications, setMedications] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [carePlans, setCarePlans] = useState([]);
   const [error, setError] = useState(null);
 
   const providerPhone = route.params?.providerPhone ?? null;
@@ -31,12 +33,17 @@ const DischargeScreen = ({ navigation, route }) => {
   const loadData = async () => {
     try {
       setError(null);
-      const [encs, meds] = await Promise.all([
+      const [encs, meds, docs, plans] = await Promise.allSettled([
         fhirService.getEncounters(),
         fhirService.getMedications(),
+        fhirService.getDocumentReferences(),
+        fhirService.getCarePlans(),
       ]);
-      setEncounters(encs);
-      setMedications(meds);
+      const settled = (r) => (r.status === 'fulfilled' ? r.value : []);
+      setEncounters(settled(encs));
+      setMedications(settled(meds));
+      setDocuments(settled(docs));
+      setCarePlans(settled(plans));
     } catch (err) {
       setError(err.message || 'Failed to load discharge data');
     } finally {
@@ -120,6 +127,8 @@ const DischargeScreen = ({ navigation, route }) => {
               <DischargeCard
                 encounter={mostRecent}
                 medications={medications}
+                documents={documents}
+                carePlans={carePlans}
                 providerPhone={providerPhone}
                 isLatest
               />
@@ -156,7 +165,7 @@ const DischargeScreen = ({ navigation, route }) => {
 
 // ─── Discharge Encounter Card ─────────────────────────────────────────────────
 
-const DischargeCard = ({ encounter, medications, providerPhone, isLatest }) => {
+const DischargeCard = ({ encounter, medications, documents = [], carePlans = [], providerPhone, isLatest }) => {
   const [expanded, setExpanded] = useState(isLatest); // auto-expand most recent
 
   const admitDate = encounter.period?.start
@@ -266,6 +275,51 @@ const DischargeCard = ({ encounter, medications, providerPhone, isLatest }) => {
               {medications.length > 5 && (
                 <Text style={styles.moreText}>+{medications.length - 5} more — see Medications tab</Text>
               )}
+            </View>
+          )}
+
+          {/* Discharge summary documents */}
+          {isLatest && documents.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Discharge Documents</Text>
+              {documents.map((doc, i) => {
+                const title = doc.description || doc.type?.coding?.[0]?.display || doc.type?.text || 'Clinical Document';
+                const date = doc.date
+                  ? new Date(doc.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                  : null;
+                const status = doc.status ?? null;
+                return (
+                  <View key={i} style={styles.docRow}>
+                    <Text style={styles.docIcon}>📄</Text>
+                    <View style={styles.docContent}>
+                      <Text style={styles.docTitle}>{title}</Text>
+                      {date && <Text style={styles.docMeta}>{date}{status ? ` · ${status}` : ''}</Text>}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Active care plans */}
+          {isLatest && carePlans.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Active Care Plans</Text>
+              {carePlans.map((plan, i) => {
+                const title = plan.title || plan.description || plan.category?.[0]?.text || plan.category?.[0]?.coding?.[0]?.display || 'Care Plan';
+                const period = plan.period?.end
+                  ? `Through ${new Date(plan.period.end).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })}`
+                  : null;
+                return (
+                  <View key={i} style={styles.docRow}>
+                    <Text style={styles.docIcon}>📋</Text>
+                    <View style={styles.docContent}>
+                      <Text style={styles.docTitle}>{title}</Text>
+                      {period && <Text style={styles.docMeta}>{period}</Text>}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           )}
 
@@ -514,6 +568,17 @@ const styles = StyleSheet.create({
   medName: { fontSize: 13, fontWeight: '600', color: '#1F2937' },
   medDosage: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   moreText: { fontSize: 12, color: '#6366F1', marginTop: 8 },
+  docRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  docIcon: { fontSize: 16, marginRight: 10, marginTop: 1 },
+  docContent: { flex: 1 },
+  docTitle: { fontSize: 13, fontWeight: '600', color: '#1F2937' },
+  docMeta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
   callButton: {
     backgroundColor: '#6366F1',
     paddingVertical: 12,

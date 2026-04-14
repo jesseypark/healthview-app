@@ -37,6 +37,9 @@ export const SCOPES = [
   'patient/Encounter.read',
   'patient/MedicationRequest.read',
   'patient/MedicationDispense.read',
+  'patient/Procedure.read',
+  'patient/DocumentReference.read',
+  'patient/CarePlan.read',
 ];
 
 // ---------------------------------------------------------------------------

@@ -94,6 +94,28 @@ class FHIRService {
     });
   }
 
+  // Fetch completed procedures
+  async getProcedures() {
+    const bundle = await this.fhirFetch(`/Procedure?patient=${this.patientId}&status=completed`);
+    return this.extractResources(bundle);
+  }
+
+  // Fetch discharge summary documents (LOINC 18842-5) and any clinical notes
+  async getDocumentReferences() {
+    const bundle = await this.fhirFetch(
+      `/DocumentReference?patient=${this.patientId}&type=18842-5&_sort=-date&_count=10`
+    );
+    return this.extractResources(bundle);
+  }
+
+  // Fetch active care plans
+  async getCarePlans() {
+    const bundle = await this.fhirFetch(
+      `/CarePlan?patient=${this.patientId}&status=active`
+    );
+    return this.extractResources(bundle);
+  }
+
   // Helper: extract a human-readable medication name from a MedicationRequest
   getMedicationName(med) {
     return (
@@ -142,7 +164,7 @@ class FHIRService {
   async getAllPatientData() {
     const patient = await this.getPatient();
 
-    const [conditionsResult, observationsResult, immunizationsResult, allergiesResult, sdohResult, medicationsResult] =
+    const [conditionsResult, observationsResult, immunizationsResult, allergiesResult, sdohResult, medicationsResult, proceduresResult] =
       await Promise.allSettled([
         this.getConditions(),
         this.getObservations(),
@@ -150,6 +172,7 @@ class FHIRService {
         this.getAllergyIntolerances(),
         this.getSDOHData(),
         this.getMedications(),
+        this.getProcedures(),
       ]);
 
     const settled = (result) => (result.status === 'fulfilled' ? result.value : []);
@@ -163,6 +186,7 @@ class FHIRService {
       allergies:     settled(allergiesResult),
       sdoh:          settledObj(sdohResult),
       medications:   settled(medicationsResult),
+      procedures:    settled(proceduresResult),
     };
   }
 
