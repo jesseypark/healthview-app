@@ -7,6 +7,9 @@ import * as WebBrowser from 'expo-web-browser';
 
 import LoginScreen from './src/screens/LoginScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
+import SDOHScreen from './src/screens/SDOHScreen';
+import MedicationsScreen from './src/screens/MedicationsScreen';
+import DischargeScreen from './src/screens/DischargeScreen';
 
 // Keep splash visible until navigation is ready.
 SplashScreen.preventAutoHideAsync();
@@ -30,6 +33,13 @@ export default function App() {
         >
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
+          <Stack.Screen
+            name="SDOH"
+            component={SDOHScreen}
+            options={{ presentation: 'modal' }}
+          />
+          <Stack.Screen name="Medications" component={MedicationsScreen} />
+          <Stack.Screen name="Discharge" component={DischargeScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

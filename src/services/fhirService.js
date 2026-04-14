@@ -75,19 +75,85 @@ class FHIRService {
     return this.extractResources(bundle);
   }
 
+  // Fetch active medication requests
+  async getMedications() {
+    const bundle = await this.fhirFetch(`/MedicationRequest?patient=${this.patientId}&status=active`);
+    return this.extractResources(bundle);
+  }
+
+  // Fetch inpatient encounters (IMP class = inpatient, EMER = emergency), most recent first
+  async getEncounters() {
+    const bundle = await this.fhirFetch(
+      `/Encounter?patient=${this.patientId}&_sort=-date&_count=20`
+    );
+    const all = this.extractResources(bundle);
+    // Filter to inpatient / emergency stays that have a discharge (period.end exists)
+    return all.filter(enc => {
+      const classCode = enc.class?.code;
+      return (classCode === 'IMP' || classCode === 'EMER' || classCode === 'ACUTE') && enc.period?.end;
+    });
+  }
+
+  // Helper: extract a human-readable medication name from a MedicationRequest
+  getMedicationName(med) {
+    return (
+      med.medicationCodeableConcept?.text ||
+      med.medicationCodeableConcept?.coding?.[0]?.display ||
+      med.medicationReference?.display ||
+      'Unknown Medication'
+    );
+  }
+
+  // Helper: extract dosage instruction text from a MedicationRequest
+  getMedicationDosage(med) {
+    const instr = med.dosageInstruction?.[0];
+    if (!instr) return null;
+    return instr.text || instr.patientInstruction || null;
+  }
+
+  // Fetch SDOH data — social-history and survey category observations + Z-code conditions
+  async getSDOHData() {
+    const [socialHistoryResult, surveyResult, conditionsAllResult] = await Promise.allSettled([
+      this.fhirFetch(`/Observation?patient=${this.patientId}&category=social-history`).then(b => this.extractResources(b)),
+      this.fhirFetch(`/Observation?patient=${this.patientId}&category=survey`).then(b => this.extractResources(b)),
+      this.fhirFetch(`/Condition?patient=${this.patientId}`).then(b => this.extractResources(b)),
+    ]);
+
+    const settled = (result) => (result.status === 'fulfilled' ? result.value : []);
+
+    const socialHistory = settled(socialHistoryResult);
+    const surveys = settled(surveyResult);
+    const allConditions = settled(conditionsAllResult);
+
+    // Filter conditions for Z-codes (Z55-Z65 = social determinants)
+    const zCodeConditions = allConditions.filter(c => {
+      const codes = c.code?.coding ?? [];
+      return codes.some(coding => /^Z[56][0-9]/.test(coding.code || ''));
+    });
+
+    return {
+      socialHistory,
+      surveys,
+      zCodeConditions,
+    };
+  }
+
   // Fetch all patient data at once — uses allSettled so one failure doesn't block the rest
   async getAllPatientData() {
     const patient = await this.getPatient();
 
-    const [conditionsResult, observationsResult, immunizationsResult, allergiesResult] =
+    const [conditionsResult, observationsResult, immunizationsResult, allergiesResult, sdohResult, medicationsResult] =
       await Promise.allSettled([
         this.getConditions(),
         this.getObservations(),
         this.getImmunizations(),
         this.getAllergyIntolerances(),
+        this.getSDOHData(),
+        this.getMedications(),
       ]);
 
     const settled = (result) => (result.status === 'fulfilled' ? result.value : []);
+    const settledObj = (result) => (result.status === 'fulfilled' ? result.value : { socialHistory: [], surveys: [], zCodeConditions: [] });
 
     return {
       patient,
@@ -95,6 +161,8 @@ class FHIRService {
       observations:  settled(observationsResult),
       immunizations: settled(immunizationsResult),
       allergies:     settled(allergiesResult),
+      sdoh:          settledObj(sdohResult),
+      medications:   settled(medicationsResult),
     };
   }
 
@@ -104,6 +172,18 @@ class FHIRService {
       return [];
     }
     return bundle.entry.map(entry => entry.resource).filter(Boolean);
+  }
+
+  // Fetch provider phone from patient's generalPractitioner reference
+  async getProviderPhone(patient) {
+    try {
+      const ref = patient?.generalPractitioner?.[0]?.reference;
+      if (!ref) return null;
+      const practitioner = await this.fhirFetch(`/${ref}`);
+      return practitioner?.telecom?.find(t => t.system === 'phone')?.value ?? null;
+    } catch {
+      return null;
+    }
   }
 
   // Helper: Get patient's age from birthDate

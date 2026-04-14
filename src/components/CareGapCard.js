@@ -7,11 +7,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { MEASURE_STATUS, getStatusDisplay } from '../constants/qualityMeasures';
 import aiService from '../services/aiService';
 
-const CareGapCard = ({ measureResult, patientContext, onPress }) => {
+const CareGapCard = ({ measureResult, patientContext, providerPhone, onPress }) => {
   const [expanded, setExpanded] = useState(false);
   const [aiExplanation, setAiExplanation] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -108,10 +109,21 @@ const CareGapCard = ({ measureResult, patientContext, onPress }) => {
             </View>
           )}
 
-          {/* Action button for due measures */}
+          {/* Schedule appointment button for due measures */}
           {isActionNeeded && (
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionButtonText}>Find a Provider</Text>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => providerPhone
+                ? Linking.openURL(`tel:${providerPhone}`)
+                : null
+              }
+            >
+              <Text style={styles.actionButtonText}>📞 Schedule Appointment</Text>
+              {providerPhone ? (
+                <Text style={styles.actionButtonPhone}>{providerPhone}</Text>
+              ) : (
+                <Text style={styles.actionButtonPhone}>Contact your provider's office</Text>
+              )}
             </TouchableOpacity>
           )}
         </View>
@@ -268,6 +280,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
+  },
+  actionButtonPhone: {
+    color: '#C7D2FE',
+    fontSize: 13,
+    marginTop: 4,
   },
   expandIndicator: {
     fontSize: 12,

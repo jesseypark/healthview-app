@@ -29,6 +29,10 @@ const DashboardScreen = ({ navigation }) => {
   const [measureResults, setMeasureResults] = useState([]);
   const [summary, setSummary] = useState(null);
   const [patientContext, setPatientContext] = useState(null);
+  const [providerPhone, setProviderPhone] = useState(null);
+  const [sdohResult, setSDOHResult] = useState(null); // self-reported questionnaire answers
+  const [sdohFhirData, setSDOHFhirData] = useState(null); // FHIR SDOH data
+  const [sdohBannerDismissed, setSDOHBannerDismissed] = useState(false);
 
   // Load data on mount
   useEffect(() => {
@@ -43,8 +47,15 @@ const DashboardScreen = ({ navigation }) => {
       const data = await fhirService.getAllPatientData();
       setPatientData(data);
 
-      // Build patient context for AI
-      const context = aiService.buildPatientContext(data.patient, data.conditions);
+      // Fetch provider phone number
+      const phone = await fhirService.getProviderPhone(data.patient);
+      setProviderPhone(phone);
+
+      // Store SDOH FHIR data
+      setSDOHFhirData(data.sdoh);
+
+      // Build patient context for AI (includes FHIR SDOH data)
+      const context = aiService.buildPatientContext(data.patient, data.conditions, data.sdoh);
       setPatientContext(context);
 
       // Analyze quality measures
@@ -69,6 +80,20 @@ const DashboardScreen = ({ navigation }) => {
     setRefreshing(true);
     loadPatientData();
   };
+
+  const handleSDOHComplete = (result) => {
+    setSDOHResult(result);
+    setSDOHBannerDismissed(true);
+  };
+
+  const openSDOHQuestionnaire = () => {
+    navigation.navigate('SDOH', { onComplete: handleSDOHComplete });
+  };
+
+  // Merge self-reported SDOH into patient context for AI
+  const enrichedPatientContext = sdohResult
+    ? aiService.addSDOHAnswers(patientContext, sdohResult)
+    : patientContext;
 
   const handleLogout = () => {
     Alert.alert(
@@ -169,6 +194,72 @@ const DashboardScreen = ({ navigation }) => {
           />
         )}
 
+        {/* SDOH Personalization Banner */}
+        {!sdohBannerDismissed && !sdohResult && (
+          <TouchableOpacity style={styles.sdohBanner} onPress={openSDOHQuestionnaire} activeOpacity={0.8}>
+            <View style={styles.sdohBannerContent}>
+              <Text style={styles.sdohBannerIcon}>🎯</Text>
+              <View style={styles.sdohBannerText}>
+                <Text style={styles.sdohBannerTitle}>Personalize Your Care Insights</Text>
+                <Text style={styles.sdohBannerSubtitle}>
+                  Answer 6 quick questions to get recommendations tailored to your life.
+                </Text>
+              </View>
+              <Text style={styles.sdohBannerArrow}>→</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* SDOH Completion Badge */}
+        {sdohResult && (
+          <View style={styles.sdohComplete}>
+            <Text style={styles.sdohCompleteIcon}>✅</Text>
+            <Text style={styles.sdohCompleteText}>
+              Insights personalized to your life circumstances
+              {sdohResult.needsIdentified.length > 0
+                ? ` · ${sdohResult.needsIdentified.length} social need${sdohResult.needsIdentified.length > 1 ? 's' : ''} noted`
+                : ''}
+            </Text>
+            <TouchableOpacity onPress={openSDOHQuestionnaire}>
+              <Text style={styles.sdohCompleteEdit}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Quick-Access: Medications & Post-Discharge */}
+        <View style={styles.quickAccessRow}>
+          <TouchableOpacity
+            style={[styles.quickCard, styles.quickCardMeds]}
+            activeOpacity={0.8}
+            onPress={() =>
+              navigation.navigate('Medications', {
+                patientContext: enrichedPatientContext,
+                providerPhone,
+              })
+            }
+          >
+            <Text style={styles.quickCardIcon}>💊</Text>
+            <Text style={styles.quickCardTitle}>My Medications</Text>
+            <Text style={styles.quickCardSub}>
+              {patientData?.medications?.length
+                ? `${patientData.medications.length} active`
+                : 'View prescriptions'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.quickCard, styles.quickCardDischarge]}
+            activeOpacity={0.8}
+            onPress={() =>
+              navigation.navigate('Discharge', { providerPhone })
+            }
+          >
+            <Text style={styles.quickCardIcon}>🏥</Text>
+            <Text style={styles.quickCardTitle}>Post-Discharge</Text>
+            <Text style={styles.quickCardSub}>Follow-up & checklist</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Action Needed Section */}
         {actionNeeded.length > 0 && (
           <View style={styles.section}>
@@ -180,7 +271,8 @@ const DashboardScreen = ({ navigation }) => {
               <CareGapCard
                 key={result.measure.id}
                 measureResult={result}
-                patientContext={patientContext}
+                patientContext={enrichedPatientContext}
+                providerPhone={providerPhone}
               />
             ))}
           </View>
@@ -197,7 +289,8 @@ const DashboardScreen = ({ navigation }) => {
               <CareGapCard
                 key={result.measure.id}
                 measureResult={result}
-                patientContext={patientContext}
+                patientContext={enrichedPatientContext}
+                providerPhone={providerPhone}
               />
             ))}
           </View>
@@ -214,10 +307,15 @@ const DashboardScreen = ({ navigation }) => {
               <CareGapCard
                 key={result.measure.id}
                 measureResult={result}
-                patientContext={patientContext}
+                patientContext={enrichedPatientContext}
               />
             ))}
           </View>
+        )}
+
+        {/* SDOH FHIR Data Section */}
+        {sdohFhirData && (
+          <SDOHDataSection sdohFhirData={sdohFhirData} />
         )}
 
         {/* Educational Footer */}
@@ -394,6 +492,282 @@ const styles = StyleSheet.create({
   dataSourceText: {
     fontSize: 12,
     color: '#9CA3AF',
+  },
+  quickAccessRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  quickCard: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+  },
+  quickCardMeds: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+  },
+  quickCardDischarge: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  quickCardIcon: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  quickCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  quickCardSub: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  sdohBanner: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  sdohBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sdohBannerIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  sdohBannerText: {
+    flex: 1,
+  },
+  sdohBannerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#4338CA',
+    marginBottom: 4,
+  },
+  sdohBannerSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  sdohBannerArrow: {
+    fontSize: 20,
+    color: '#6366F1',
+    marginLeft: 8,
+  },
+  sdohComplete: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D1FAE5',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  sdohCompleteIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  sdohCompleteText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#065F46',
+  },
+  sdohCompleteEdit: {
+    fontSize: 13,
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+});
+
+// ─── SDOH FHIR Data Section ───────────────────────────────────────────────────
+
+const SDOHDataSection = ({ sdohFhirData }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const { socialHistory = [], surveys = [], zCodeConditions = [] } = sdohFhirData;
+  const totalItems = socialHistory.length + surveys.length + zCodeConditions.length;
+
+  if (totalItems === 0) return null;
+
+  const renderObservation = (obs, index) => {
+    const name = obs.code?.coding?.[0]?.display || obs.code?.text || 'Unknown';
+    const value = obs.valueCodeableConcept?.text
+      || obs.valueCodeableConcept?.coding?.[0]?.display
+      || (obs.valueQuantity ? `${obs.valueQuantity.value} ${obs.valueQuantity.unit ?? ''}`.trim() : null)
+      || obs.valueString
+      || '—';
+    const date = obs.effectiveDateTime
+      ? new Date(obs.effectiveDateTime).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
+      : null;
+
+    return (
+      <View key={index} style={sdohStyles.dataRow}>
+        <View style={sdohStyles.dataRowLeft}>
+          <Text style={sdohStyles.dataName}>{name}</Text>
+          {date && <Text style={sdohStyles.dataDate}>{date}</Text>}
+        </View>
+        <Text style={sdohStyles.dataValue}>{value}</Text>
+      </View>
+    );
+  };
+
+  const renderCondition = (cond, index) => {
+    const name = cond.code?.coding?.[0]?.display || cond.code?.text || 'Unknown';
+    const code = cond.code?.coding?.[0]?.code;
+    return (
+      <View key={index} style={sdohStyles.dataRow}>
+        <View style={sdohStyles.dataRowLeft}>
+          <Text style={sdohStyles.dataName}>{name}</Text>
+          {code && <Text style={sdohStyles.dataDate}>{code}</Text>}
+        </View>
+        <Text style={sdohStyles.dataValue}>Documented</Text>
+      </View>
+    );
+  };
+
+  return (
+    <View style={sdohStyles.container}>
+      <TouchableOpacity
+        style={sdohStyles.header}
+        onPress={() => setExpanded(e => !e)}
+        activeOpacity={0.7}
+      >
+        <View style={sdohStyles.headerLeft}>
+          <Text style={sdohStyles.headerIcon}>🌐</Text>
+          <View>
+            <Text style={sdohStyles.headerTitle}>Social Health Data from Epic</Text>
+            <Text style={sdohStyles.headerSubtitle}>{totalItems} record{totalItems !== 1 ? 's' : ''} found in your chart</Text>
+          </View>
+        </View>
+        <Text style={sdohStyles.expandIcon}>{expanded ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+
+      {expanded && (
+        <View style={sdohStyles.body}>
+          {socialHistory.length > 0 && (
+            <View style={sdohStyles.group}>
+              <Text style={sdohStyles.groupTitle}>Social History</Text>
+              {socialHistory.map(renderObservation)}
+            </View>
+          )}
+          {surveys.length > 0 && (
+            <View style={sdohStyles.group}>
+              <Text style={sdohStyles.groupTitle}>Screening Surveys</Text>
+              {surveys.map(renderObservation)}
+            </View>
+          )}
+          {zCodeConditions.length > 0 && (
+            <View style={sdohStyles.group}>
+              <Text style={sdohStyles.groupTitle}>Social Conditions (Z-Codes)</Text>
+              {zCodeConditions.map(renderCondition)}
+            </View>
+          )}
+          <Text style={sdohStyles.footer}>
+            Epic can store SDOH data including food security, housing, transportation,
+            employment, social support, and stress — mapped to LOINC codes and ICD-10 Z-codes.
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
+const sdohStyles = StyleSheet.create({
+  container: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    marginBottom: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  headerIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  expandIcon: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  body: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    padding: 16,
+  },
+  group: {
+    marginBottom: 16,
+  },
+  groupTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6366F1',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  dataRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  dataRowLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  dataName: {
+    fontSize: 13,
+    color: '#374151',
+    lineHeight: 18,
+  },
+  dataDate: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  dataValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1F2937',
+    textAlign: 'right',
+    maxWidth: '40%',
+  },
+  footer: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    lineHeight: 18,
+    marginTop: 8,
+    fontStyle: 'italic',
   },
 });
 

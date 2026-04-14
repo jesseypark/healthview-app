@@ -13,8 +13,75 @@ class AIService {
 
   // Generate a plain-language explanation of a care gap
   async explainCareGap(measureResult, patientContext) {
+    if (this.apiKey === 'YOUR_ANTHROPIC_API_KEY_HERE') {
+      return this.buildFallbackExplanation(measureResult, patientContext);
+    }
     const prompt = this.buildCareGapPrompt(measureResult, patientContext);
-    return this.generateResponse(prompt);
+    try {
+      return await this.generateResponse(prompt);
+    } catch {
+      return this.buildFallbackExplanation(measureResult, patientContext);
+    }
+  }
+
+  buildFallbackExplanation(measureResult, patientContext) {
+    const { measure, status, lastCompleted } = measureResult;
+    const age = patientContext?.age ?? 'your';
+    const isDue = status === 'due';
+    const isOverdue = status === 'overdue';
+
+    const sdohNeeds = patientContext?.sdohNeedsIdentified ?? [];
+    let transportNote = '';
+    if (sdohNeeds.includes('Transportation') && (isDue || isOverdue)) {
+      transportNote = ' If transportation is a barrier, ask your provider about telehealth options or community transport assistance.';
+    }
+
+    if (isDue || isOverdue) {
+      const urgency = isOverdue
+        ? 'This is overdue — scheduling it soon is a priority.'
+        : 'Now is a great time to get this done.';
+      return `At age ${age}, ${measure.name.toLowerCase()} is recommended for you. ${measure.whyItMatters} ${urgency}${transportNote} Talk to your provider about scheduling this.`;
+    }
+    if (lastCompleted) {
+      return `Great job staying on top of your health! You completed ${measure.name.toLowerCase()} on ${lastCompleted}. ${measure.whyItMatters} Keep it up!`;
+    }
+    return `You're current on ${measure.name.toLowerCase()}. ${measure.whyItMatters}`;
+  }
+
+  // Generate a plain-language explanation of a medication
+  async explainMedication(medicationName, dosage, patientContext) {
+    if (this.apiKey === 'YOUR_ANTHROPIC_API_KEY_HERE') {
+      return this.buildFallbackMedicationExplanation(medicationName, dosage);
+    }
+    const prompt = this.buildMedicationPrompt(medicationName, dosage, patientContext);
+    try {
+      return await this.generateResponse(prompt);
+    } catch {
+      return this.buildFallbackMedicationExplanation(medicationName, dosage);
+    }
+  }
+
+  buildFallbackMedicationExplanation(medicationName, dosage) {
+    return `${medicationName} is a prescribed medication in your care plan.${dosage ? ` Take as directed: ${dosage}.` : ''} Talk to your provider or pharmacist if you have questions about this medication or need a refill.`;
+  }
+
+  buildMedicationPrompt(medicationName, dosage, patientContext) {
+    return `You are a helpful health assistant explaining a medication to a patient. Be clear, reassuring, and avoid unnecessary alarm.
+
+Patient context:
+- Age: ${patientContext?.age ?? 'unknown'}
+- Gender: ${patientContext?.gender ?? 'unknown'}
+- Relevant conditions: ${patientContext?.conditions?.join(', ') || 'None noted'}
+
+Medication: ${medicationName}
+${dosage ? `Dosage instructions: ${dosage}` : ''}
+
+Please provide:
+1. A simple explanation of what this medication is commonly used for (1-2 sentences)
+2. Any key tips for taking it correctly
+3. When to contact their provider (refills, side effects, etc.)
+
+Keep the total response under 120 words. Be warm and direct. Use "you" and "your" to speak directly to the patient.`;
   }
 
   // Generate explanation of a lab result or observation
@@ -33,12 +100,20 @@ class AIService {
   buildCareGapPrompt(measureResult, patientContext) {
     const { measure, status, lastCompleted, value } = measureResult;
     
+    const sdohLines = [];
+    if (patientContext.sdohObservations?.length > 0) {
+      sdohLines.push(`- Social & life context (from health record): ${patientContext.sdohObservations.slice(0, 4).join('; ')}`);
+    }
+    if (patientContext.sdohSelfReported) {
+      sdohLines.push(`- ${patientContext.sdohSelfReported}`);
+    }
+
     return `You are a helpful health assistant explaining preventive care to a patient. Be warm, clear, and encouraging. Avoid medical jargon.
 
 Patient context:
 - Age: ${patientContext.age}
 - Gender: ${patientContext.gender}
-- Relevant conditions: ${patientContext.conditions.join(', ') || 'None noted'}
+- Relevant conditions: ${patientContext.conditions.join(', ') || 'None noted'}${sdohLines.length > 0 ? '\n' + sdohLines.join('\n') : ''}
 
 Care measure: ${measure.name}
 Status: ${status}
@@ -165,18 +240,54 @@ Keep the total response under 120 words. Be warm and supportive, like a helpful 
   }
 
   // Build patient context object from FHIR data
-  buildPatientContext(patient, conditions) {
+  buildPatientContext(patient, conditions, sdohFhirData = null) {
     const age = new Date().getFullYear() - new Date(patient.birthDate).getFullYear();
     const gender = patient.gender || 'unknown';
-    
+
     const conditionNames = conditions
       .map(c => c.code?.coding?.[0]?.display)
       .filter(Boolean);
+
+    // Extract SDOH observations from FHIR
+    const sdohObservations = [];
+    if (sdohFhirData) {
+      const allObs = [...(sdohFhirData.socialHistory ?? []), ...(sdohFhirData.surveys ?? [])];
+      for (const obs of allObs) {
+        const name = obs.code?.coding?.[0]?.display || obs.code?.text;
+        const value = obs.valueCodeableConcept?.text
+          || obs.valueCodeableConcept?.coding?.[0]?.display
+          || (obs.valueQuantity ? `${obs.valueQuantity.value} ${obs.valueQuantity.unit ?? ''}`.trim() : null)
+          || obs.valueString;
+        if (name && value) sdohObservations.push(`${name}: ${value}`);
+      }
+
+      for (const cond of (sdohFhirData.zCodeConditions ?? [])) {
+        const name = cond.code?.coding?.[0]?.display || cond.code?.text;
+        if (name) sdohObservations.push(`Social condition: ${name}`);
+      }
+    }
 
     return {
       age,
       gender,
       conditions: conditionNames,
+      sdohObservations,
+    };
+  }
+
+  // Merge self-reported SDOH questionnaire answers into patient context
+  addSDOHAnswers(patientContext, sdohResult) {
+    if (!sdohResult) return patientContext;
+
+    const { answers, needsIdentified } = sdohResult;
+    const selfReported = needsIdentified.length > 0
+      ? `Self-reported social needs: ${needsIdentified.join(', ')}`
+      : 'No significant social needs self-reported';
+
+    return {
+      ...patientContext,
+      sdohSelfReported: selfReported,
+      sdohNeedsIdentified: needsIdentified,
     };
   }
 }
