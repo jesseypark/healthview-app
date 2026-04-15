@@ -1,6 +1,6 @@
 # HANDOFF — HealthView
 
-Last updated: 2026-04-14 (session 3)
+Last updated: 2026-04-15 (session 5)
 
 ---
 
@@ -11,7 +11,7 @@ Last updated: 2026-04-14 (session 3)
 - Manual token exchange preserves Epic's `patient` field from the token response
 - `fhirService` fetches: Patient, Condition, Observation (lab + social-history + survey), Immunization, AllergyIntolerance, MedicationRequest, Procedure, Encounter, DocumentReference, CarePlan, Practitioner (for provider phone)
 - `Promise.allSettled` pattern throughout — partial failures don't break the UI
-- Registered scopes: Patient, Condition, Observation, Immunization, AllergyIntolerance, Encounter, MedicationRequest, MedicationDispense, Procedure, DocumentReference, CarePlan (`Appointment.read` not available in Epic sandbox)
+- Registered scopes in Epic app portal: Patient (Demographics), Condition (Encounter Diagnosis), Condition (Problems), Observation (Labs), Observation (Social History), Observation (Assessments), Observation (SDOH Assessments), Observation (Outside Record SDOH Assessment), Observation (Outside Record Activities of Daily Living), Immunization (Patient Chart), AllergyIntolerance (Outside Record), Encounter (Patient Chart), MedicationRequest (Outside Record), MedicationRequest (Signed Medication Order), MedicationDispense (Fill Status), MedicationDispense (Outside Record), Procedure (Orders), DocumentReference (Clinical Notes), CarePlan (Encounter) — `Appointment.read` not available in Epic sandbox; `MedicationRequest (Patient Chart)` not available as a portal option
 
 ### Care Gaps Dashboard
 - 5 quality measures implemented: Flu Shot, Colorectal Screening, Breast Cancer Screening, HbA1c, Blood Pressure
@@ -31,6 +31,7 @@ Last updated: 2026-04-14 (session 3)
 - Per-medication card: name, dosage, prescriber, authored date, refills allowed, validity end
 - AI explanation per medication (lazy, on expand)
 - "Request Refill" button calls provider phone via `tel:` deep link
+- 403 error state now shows a plain-language message directing the user to log out and re-authenticate
 
 ### Post-Discharge Screen (added 2026-04-13, updated session 2)
 - Fetches inpatient/emergency encounters with `period.end` (completed stays only)
@@ -51,6 +52,17 @@ Last updated: 2026-04-14 (session 3)
 ---
 
 ## Known Issues & Incomplete Work
+
+### MedicationRequest 403 — root cause confirmed (portal-side, not code)
+Inspected the raw token response on 2026-04-15. Epic's granted `scope` field contains only: `patient/AllergyIntolerance.read patient/Condition.read patient/Immunization.read patient/Observation.read patient/Patient.read launch/patient openid`. Every scope added in session 3 (`MedicationRequest`, `MedicationDispense`, `Encounter`, `Procedure`, `DocumentReference`, `CarePlan`) is silently dropped at authorization. The Medications screen (and Discharge screen, which depends on `Encounter`/`DocumentReference`/`CarePlan`) will 403 until the grant includes these.
+
+No code fix required. Resolution is Epic-portal-side:
+1. Re-verify the scope checkboxes are saved on the live (not draft) app version at https://fhir.epic.com/Developer/Apps
+2. Epic sandbox scope changes can take up to ~60 min to propagate to new tokens
+3. Login via a fresh/incognito browser session to bypass any cached consent
+4. Confirm the app's `client_id` matches the one in the token (`ff7695f5-cef2-4c7e-9c14-e1bcab631eb4`)
+
+Re-auth after each change and inspect `[HealthView] Raw token response:` — success = the new scopes appear in the `scope` field.
 
 ### ~~`Procedure` resources never fetched~~ FIXED
 `getProcedures()` added to `fhirService`; `procedures` now included in `getAllPatientData()`. Colorectal Screening and Breast Cancer Screening will now show as COMPLETE when matching CPT/SNOMED codes are found in the patient's record.

@@ -11,6 +11,7 @@ import {
   RefreshControl,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import fhirService from '../services/fhirService';
@@ -231,12 +232,13 @@ const DashboardScreen = ({ navigation }) => {
           <TouchableOpacity
             style={[styles.quickCard, styles.quickCardMeds]}
             activeOpacity={0.8}
-            onPress={() =>
+            onPress={() => {
+              if (Platform.OS === 'web') document.activeElement?.blur();
               navigation.navigate('Medications', {
                 patientContext: enrichedPatientContext,
                 providerPhone,
-              })
-            }
+              });
+            }}
           >
             <Text style={styles.quickCardIcon}>💊</Text>
             <Text style={styles.quickCardTitle}>My Medications</Text>
@@ -250,9 +252,10 @@ const DashboardScreen = ({ navigation }) => {
           <TouchableOpacity
             style={[styles.quickCard, styles.quickCardDischarge]}
             activeOpacity={0.8}
-            onPress={() =>
-              navigation.navigate('Discharge', { providerPhone })
-            }
+            onPress={() => {
+              if (Platform.OS === 'web') document.activeElement?.blur();
+              navigation.navigate('Discharge', { providerPhone });
+            }}
           >
             <Text style={styles.quickCardIcon}>🏥</Text>
             <Text style={styles.quickCardTitle}>Post-Discharge</Text>

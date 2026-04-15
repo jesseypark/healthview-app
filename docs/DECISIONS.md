@@ -64,6 +64,9 @@ Each question in `SDOH_QUESTIONS` has a `loincCode` field. These aren't used in 
 
 ## Screens & Navigation
 
+### `document.activeElement.blur()` before navigation on web
+When a `TouchableOpacity` is pressed to navigate, the browser retains focus on that element. React Navigation then marks the departing screen `aria-hidden="true"`, which triggers a WAI-ARIA violation warning because a focused element has an `aria-hidden` ancestor. The fix is `document.activeElement?.blur()` in the `onPress` handler, guarded by `Platform.OS === 'web'`. Applied to the Medications and Discharge navigation calls in `DashboardScreen`.
+
 ### Medications and Discharge screens fetch data independently
 Rather than receiving data from the Dashboard via params, these screens call `fhirService` directly on mount. This allows pull-to-refresh and keeps them usable if navigated to directly. They do receive `patientContext` and `providerPhone` as params from Dashboard (read-only, for display/AI use).
 
@@ -72,6 +75,9 @@ Rather than receiving data from the Dashboard via params, these screens call `fh
 
 ### DischargeScreen uses `Promise.allSettled` for its four independent fetches
 Encounters, medications, document references, and care plans are all fetched in parallel with `allSettled`. Epic's sandbox may return 404 or empty bundles for DocumentReference and CarePlan if the test patient has no records — `allSettled` ensures a missing document list doesn't break the encounter display.
+
+### Verify Epic's granted `scope` field, not just the requested `SCOPES` array
+When a FHIR request 403s, the first diagnostic is the `scope` field on the raw token response logged as `[HealthView] Raw token response:`. Epic silently drops any scope the app requests that isn't checked and saved on the app's portal registration — the request-side `SCOPES` array in `epicConfig.js` is only a wish list. Confirmed on 2026-04-15 when all six session-3 scopes (`MedicationRequest`, `MedicationDispense`, `Encounter`, `Procedure`, `DocumentReference`, `CarePlan`) were missing from the grant despite being in `SCOPES`.
 
 ### SDOHScreen communicates back via callback, not params
 Instead of `navigation.navigate('Dashboard', { sdohResult })`, the SDOH screen calls `route.params.onComplete(result)` before `navigation.goBack()`. This keeps the Dashboard's state management self-contained and avoids issues with React Navigation's param merging behavior on `goBack`.

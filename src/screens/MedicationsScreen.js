@@ -59,12 +59,17 @@ const MedicationsScreen = ({ navigation, route }) => {
   }
 
   if (error) {
+    const is403 = error.includes('403');
     return (
       <SafeAreaView style={styles.centered}>
         <StatusBar style="dark" />
         <Text style={styles.errorIcon}>⚠️</Text>
         <Text style={styles.errorTitle}>Could Not Load Medications</Text>
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText}>
+          {is403
+            ? 'Access denied (403). Your current session may not include the medication scope. Log out and sign in again to refresh your permissions.'
+            : error}
+        </Text>
         <TouchableOpacity style={styles.retryButton} onPress={loadMedications}>
           <Text style={styles.retryButtonText}>Try Again</Text>
         </TouchableOpacity>
