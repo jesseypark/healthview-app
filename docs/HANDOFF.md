@@ -69,6 +69,27 @@ Portal-side additions still needed for full coverage (some not available in the 
 
 After the new portal scopes propagate (~60 min) and a fresh-browser re-auth, AllergyIntolerance and Practitioner (provider phone) should clear. Lab/social-history/survey Observation, Immunization, and Condition (encounter-diagnosis) should also clear with the now-granted scopes.
 
+### Session 6 follow-up: Epic returns `insufficient_scope` despite valid scope string
+After the workarounds above, all FHIR calls still 403. Direct curl test against `Immunization?patient=erXuFYUfucBZaryVksYEcMg3` with a fresh bearer token returned:
+
+```
+HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer error="insufficient_scope",
+  error_description="The access token provided is valid, but is not authorized for this service"
+```
+
+The token's `scope` claim contains `patient/Immunization.read` (and all 12 other resource scopes), yet Epic's resource server rejects the request as insufficiently scoped. Conclusion: **the SMART OAuth scope string and Epic's underlying per-API authorization are out of sync at the portal level**. This is not a code issue.
+
+Likely portal-side causes (to investigate at https://fhir.epic.com/Developer/Apps):
+1. Saved-but-not-synced — the "Incoming APIs" list shows checked but isn't live on the sandbox
+2. Sandbox vs Production config split — the wrong environment's API list was edited
+3. App's FHIR Version field is set to DSTU2 (the field is typically not editable post-creation; would require re-registering as R4)
+4. Sandbox propagation delay (sometimes multi-hour)
+
+If portal looks correct and waiting doesn't help, last resort is to delete and re-register the app fresh with R4 + all required APIs from the start, then update `CLIENT_ID` in `src/constants/epicConfig.js`.
+
+The only call that succeeds is `Patient/{id}` — confirmed by the fact that `getProviderPhone()` retrieves a Practitioner reference from the patient resource before its own 403 on the Practitioner read.
+
 ### ~~`Procedure` resources never fetched~~ FIXED
 `getProcedures()` added to `fhirService`; `procedures` now included in `getAllPatientData()`. Colorectal Screening and Breast Cancer Screening will now show as COMPLETE when matching CPT/SNOMED codes are found in the patient's record.
 
