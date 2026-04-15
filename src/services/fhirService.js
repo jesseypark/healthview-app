@@ -75,10 +75,13 @@ class FHIRService {
     return this.extractResources(bundle);
   }
 
-  // Fetch active medication requests
+  // Fetch medication requests. Epic's open sandbox grants only "Outside Record" and
+  // "Signed Medication Order" subtypes — neither accepts a server-side `status` filter,
+  // so fetch all and filter client-side.
   async getMedications() {
-    const bundle = await this.fhirFetch(`/MedicationRequest?patient=${this.patientId}&status=active`);
-    return this.extractResources(bundle);
+    const bundle = await this.fhirFetch(`/MedicationRequest?patient=${this.patientId}`);
+    const all = this.extractResources(bundle);
+    return all.filter(m => m.status === 'active');
   }
 
   // Fetch inpatient encounters (IMP class = inpatient, EMER = emergency), most recent first
@@ -94,10 +97,12 @@ class FHIRService {
     });
   }
 
-  // Fetch completed procedures
+  // Fetch procedures. Epic's open sandbox grants only the "Orders" subtype, which
+  // rejects a server-side `status` filter — fetch all and filter client-side.
   async getProcedures() {
-    const bundle = await this.fhirFetch(`/Procedure?patient=${this.patientId}&status=completed`);
-    return this.extractResources(bundle);
+    const bundle = await this.fhirFetch(`/Procedure?patient=${this.patientId}`);
+    const all = this.extractResources(bundle);
+    return all.filter(p => p.status === 'completed');
   }
 
   // Fetch discharge summary documents (LOINC 18842-5) and any clinical notes
@@ -138,7 +143,7 @@ class FHIRService {
     const [socialHistoryResult, surveyResult, conditionsAllResult] = await Promise.allSettled([
       this.fhirFetch(`/Observation?patient=${this.patientId}&category=social-history`).then(b => this.extractResources(b)),
       this.fhirFetch(`/Observation?patient=${this.patientId}&category=survey`).then(b => this.extractResources(b)),
-      this.fhirFetch(`/Condition?patient=${this.patientId}`).then(b => this.extractResources(b)),
+      this.fhirFetch(`/Condition?patient=${this.patientId}&category=problem-list-item`).then(b => this.extractResources(b)),
     ]);
 
     const settled = (result) => (result.status === 'fulfilled' ? result.value : []);

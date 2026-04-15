@@ -77,7 +77,10 @@ Rather than receiving data from the Dashboard via params, these screens call `fh
 Encounters, medications, document references, and care plans are all fetched in parallel with `allSettled`. Epic's sandbox may return 404 or empty bundles for DocumentReference and CarePlan if the test patient has no records — `allSettled` ensures a missing document list doesn't break the encounter display.
 
 ### Verify Epic's granted `scope` field, not just the requested `SCOPES` array
-When a FHIR request 403s, the first diagnostic is the `scope` field on the raw token response logged as `[HealthView] Raw token response:`. Epic silently drops any scope the app requests that isn't checked and saved on the app's portal registration — the request-side `SCOPES` array in `epicConfig.js` is only a wish list. Confirmed on 2026-04-15 when all six session-3 scopes (`MedicationRequest`, `MedicationDispense`, `Encounter`, `Procedure`, `DocumentReference`, `CarePlan`) were missing from the grant despite being in `SCOPES`.
+When a FHIR request 403s, the first diagnostic is the `scope` field on the raw token response logged as `[HealthView] Raw token response:`. Epic silently drops any scope the app requests that isn't checked and saved on the app's portal registration — the request-side `SCOPES` array in `epicConfig.js` is only a wish list.
+
+### Epic scope strings are coarser than Epic's actual per-subtype authorization
+Even after a scope like `patient/MedicationRequest.read` appears in the granted `scope` field, the request can still 403 if the query parameters don't match the specific Epic "Incoming API" subtype that was checked in the portal (e.g., "Outside Record", "Signed Medication Order", "Patient Chart", "Orders", "Problems"). Each subtype only authorizes a specific category/status combination. Workarounds: drop server-side `status=` filters and filter client-side; use `category=problem-list-item` for "Problems"-scope Condition queries; etc. Confirmed session 6 against the Epic open sandbox.
 
 ### SDOHScreen communicates back via callback, not params
 Instead of `navigation.navigate('Dashboard', { sdohResult })`, the SDOH screen calls `route.params.onComplete(result)` before `navigation.goBack()`. This keeps the Dashboard's state management self-contained and avoids issues with React Navigation's param merging behavior on `goBack`.

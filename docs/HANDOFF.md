@@ -1,6 +1,6 @@
 # HANDOFF — HealthView
 
-Last updated: 2026-04-15 (session 5)
+Last updated: 2026-04-15 (session 6)
 
 ---
 
@@ -53,16 +53,21 @@ Last updated: 2026-04-15 (session 5)
 
 ## Known Issues & Incomplete Work
 
-### MedicationRequest 403 — root cause confirmed (portal-side, not code)
-Inspected the raw token response on 2026-04-15. Epic's granted `scope` field contains only: `patient/AllergyIntolerance.read patient/Condition.read patient/Immunization.read patient/Observation.read patient/Patient.read launch/patient openid`. Every scope added in session 3 (`MedicationRequest`, `MedicationDispense`, `Encounter`, `Procedure`, `DocumentReference`, `CarePlan`) is silently dropped at authorization. The Medications screen (and Discharge screen, which depends on `Encounter`/`DocumentReference`/`CarePlan`) will 403 until the grant includes these.
+### Epic per-subtype scope mismatch (session 6 diagnosis)
+All 13 SMART scopes are now granted at OAuth (Epic finally propagated). However, Epic's actual authorization is per-data-subtype (the "Incoming APIs" checkboxes in the dev portal), not per the broad SMART scope string. Each granted subtype only authorizes queries that match its category — using the wrong query params still 403s even with the scope string present.
 
-No code fix required. Resolution is Epic-portal-side:
-1. Re-verify the scope checkboxes are saved on the live (not draft) app version at https://fhir.epic.com/Developer/Apps
-2. Epic sandbox scope changes can take up to ~60 min to propagate to new tokens
-3. Login via a fresh/incognito browser session to bypass any cached consent
-4. Confirm the app's `client_id` matches the one in the token (`ff7695f5-cef2-4c7e-9c14-e1bcab631eb4`)
+Workarounds in code (session 6):
+- `getMedications()` — dropped `&status=active`, filter client-side. Granted MedicationRequest subtypes (Outside Record, Signed Medication Order) reject server-side status filter.
+- `getProcedures()` — dropped `&status=completed`, filter client-side. Only "Orders" subtype is granted.
+- `getSDOHData()` — unfiltered Condition query replaced with `category=problem-list-item` to match the granted "Problems" subtype (used for Z-code SDOH lookup).
 
-Re-auth after each change and inspect `[HealthView] Raw token response:` — success = the new scopes appear in the `scope` field.
+Portal-side additions still needed for full coverage (some not available in the open sandbox):
+- `MedicationRequest.Read (Patient Chart) (R4)` — NOT AVAILABLE in open sandbox
+- `Procedure.Read (History)` or `(External) (R4)` — NOT AVAILABLE in open sandbox
+- `AllergyIntolerance.Read (Patient Chart) (R4)` — ADDED 2026-04-15
+- `Practitioner.Read (R4)` — ADDED 2026-04-15
+
+After the new portal scopes propagate (~60 min) and a fresh-browser re-auth, AllergyIntolerance and Practitioner (provider phone) should clear. Lab/social-history/survey Observation, Immunization, and Condition (encounter-diagnosis) should also clear with the now-granted scopes.
 
 ### ~~`Procedure` resources never fetched~~ FIXED
 `getProcedures()` added to `fhirService`; `procedures` now included in `getAllPatientData()`. Colorectal Screening and Breast Cancer Screening will now show as COMPLETE when matching CPT/SNOMED codes are found in the patient's record.
