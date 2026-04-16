@@ -1,6 +1,6 @@
 # HANDOFF — HealthView
 
-Last updated: 2026-04-15 (session 6)
+Last updated: 2026-04-16 (session 7)
 
 ---
 
@@ -23,7 +23,7 @@ Last updated: 2026-04-15 (session 6)
 ### SDOH
 - 6-question self-screening questionnaire (PRAPARE/AHC-based, with LOINC codes)
 - FHIR SDOH data pull: social-history observations, survey observations, Z-code conditions
-- Self-reported needs merged into AI prompt context
+- Both FHIR SDOH data and self-reported needs are merged into AI prompt context to personalize care gap explanations — no raw SDOH data is displayed in the UI (removed session 7)
 - Dashboard banner prompts questionnaire completion; badge shown after
 
 ### Medications Screen (added 2026-04-13)
@@ -53,42 +53,45 @@ Last updated: 2026-04-15 (session 6)
 
 ## Known Issues & Incomplete Work
 
-### Epic per-subtype scope mismatch (session 6 diagnosis)
-All 13 SMART scopes are now granted at OAuth (Epic finally propagated). However, Epic's actual authorization is per-data-subtype (the "Incoming APIs" checkboxes in the dev portal), not per the broad SMART scope string. Each granted subtype only authorizes queries that match its category — using the wrong query params still 403s even with the scope string present.
+### ~~Epic 403 insufficient_scope on all FHIR calls~~ FIXED (session 7)
 
-Workarounds in code (session 6):
-- `getMedications()` — dropped `&status=active`, filter client-side. Granted MedicationRequest subtypes (Outside Record, Signed Medication Order) reject server-side status filter.
-- `getProcedures()` — dropped `&status=completed`, filter client-side. Only "Orders" subtype is granted.
-- `getSDOHData()` — unfiltered Condition query replaced with `category=problem-list-item` to match the granted "Problems" subtype (used for Z-code SDOH lookup).
+Root cause was missing `.Search` API entries in the Epic portal — see below for full diagnosis.
 
-Portal-side additions still needed for full coverage (some not available in the open sandbox):
-- `MedicationRequest.Read (Patient Chart) (R4)` — NOT AVAILABLE in open sandbox
-- `Procedure.Read (History)` or `(External) (R4)` — NOT AVAILABLE in open sandbox
-- `AllergyIntolerance.Read (Patient Chart) (R4)` — ADDED 2026-04-15
-- `Practitioner.Read (R4)` — ADDED 2026-04-15
+Workarounds still in code from session 6 (still needed even with `.Search` entries):
+- `getMedications()` — no `&status=active` server-side filter, filters client-side
+- `getProcedures()` — no `&status=completed` server-side filter, filters client-side
+- `getSDOHData()` — uses `category=problem-list-item` for Condition query
 
-After the new portal scopes propagate (~60 min) and a fresh-browser re-auth, AllergyIntolerance and Practitioner (provider phone) should clear. Lab/social-history/survey Observation, Immunization, and Condition (encounter-diagnosis) should also clear with the now-granted scopes.
+Portal-side APIs not available in the open sandbox (non-blocking):
+- `MedicationRequest.Read (Patient Chart) (R4)`
+- `Procedure.Read (History)` or `(External) (R4)`
 
-### Session 6 follow-up: Epic returns `insufficient_scope` despite valid scope string
-After the workarounds above, all FHIR calls still 403. Direct curl test against `Immunization?patient=erXuFYUfucBZaryVksYEcMg3` with a fresh bearer token returned:
+### Session 6–7 diagnosis: Epic `.Read` vs `.Search` API entries — ROOT CAUSE + FIX
+All FHIR calls except `Patient/{id}` return 403. The token's `scope` claim contains all 13 resource scopes, yet Epic's resource server rejects search queries as insufficiently scoped. `Patient/{id}` succeeds because it's a direct read-by-ID, not a search.
 
-```
-HTTP/1.1 403 Forbidden
-WWW-Authenticate: Bearer error="insufficient_scope",
-  error_description="The access token provided is valid, but is not authorized for this service"
-```
+**Root cause (session 7 research):** Epic's portal has **separate `.Read` and `.Search` API entries** for each resource subtype. The app's "Incoming APIs" likely only had `.Read` variants checked. In Epic's authorization model:
+- `.Read` APIs authorize direct resource reads by ID (e.g., `GET /Patient/{id}`)
+- `.Search` APIs authorize query/search operations (e.g., `GET /Condition?patient={id}`)
 
-The token's `scope` claim contains `patient/Immunization.read` (and all 12 other resource scopes), yet Epic's resource server rejects the request as insufficiently scoped. Conclusion: **the SMART OAuth scope string and Epic's underlying per-API authorization are out of sync at the portal level**. This is not a code issue.
+Since every FHIR call in the app (except `Patient/{id}`) is a search query using `?patient=` parameters, **all calls fail without the `.Search` API entries**. The SMART scope string `patient/X.read` covers both read and search per the FHIR spec, but Epic enforces its own per-API authorization on top of that.
 
-Likely portal-side causes (to investigate at https://fhir.epic.com/Developer/Apps):
-1. Saved-but-not-synced — the "Incoming APIs" list shows checked but isn't live on the sandbox
-2. Sandbox vs Production config split — the wrong environment's API list was edited
-3. App's FHIR Version field is set to DSTU2 (the field is typically not editable post-creation; would require re-registering as R4)
-4. Sandbox propagation delay (sometimes multi-hour)
+**Fix:** In the Epic portal "Incoming APIs" section, check BOTH `.Read` AND `.Search` entries for every resource subtype. Then Save & Ready for Sandbox, wait up to 1 hour, and re-auth.
 
-If portal looks correct and waiting doesn't help, last resort is to delete and re-register the app fresh with R4 + all required APIs from the start, then update `CLIENT_ID` in `src/constants/epicConfig.js`.
+Reference: [SMART on FHIR Google Group — 403 on Observation/DiagnosticReport](https://groups.google.com/g/smart-on-fhir/c/jJqF8dZ76Js)
 
-The only call that succeeds is `Patient/{id}` — confirmed by the fact that `getProviderPhone()` retrieves a Practitioner reference from the patient resource before its own 403 on the Practitioner read.
+Verified during session 7 research:
+- App settings confirmed correct: Application Audience = Patients, FHIR Version = R4, SMART v1
+- SMART configuration endpoint supports `launch-standalone`, `context-standalone-patient`, `permission-patient`, `permission-v1`
+- CapabilityStatement confirms all target resources support both `read` and `search-type` interactions
+- Code is correct — Bearer token properly attached in `fhirService.fhirFetch()`
+- App was re-registered in session 7 with new CLIENT_ID `815f9183-d3e0-4a79-8662-047d8f359e31`; same 403 behavior because the `.Search` API entries were still missing
+
+Previous hypotheses ruled out:
+- ~~DSTU2 vs R4 mismatch~~ — confirmed R4
+- ~~Application Audience wrong~~ — confirmed "Patients"
+- ~~Code-level auth header issue~~ — confirmed correct
+- ~~Sandbox propagation delay~~ — persisted across 2 app registrations and 24+ hours
+- ~~Saved-but-not-synced~~ — multiple Save & Ready cycles performed
 
 ### ~~`Procedure` resources never fetched~~ FIXED
 `getProcedures()` added to `fhirService`; `procedures` now included in `getAllPatientData()`. Colorectal Screening and Breast Cancer Screening will now show as COMPLETE when matching CPT/SNOMED codes are found in the patient's record.
@@ -119,11 +122,13 @@ Individual screens have try/catch and error states, but there's no React error b
 
 ---
 
-## Next Logical Features
+## Next Steps (priority order)
 
-1. **Lab results screen** — `Observation?category=laboratory` is already fetched; surface it with AI explanations using the existing `explainLabResult()` method
-2. **Medication history** — fetch `MedicationDispense` (scope already added) for dispense history alongside active requests
-3. **Token refresh** — wire `oauthService.getValidAccessToken()` into `fhirService.fhirFetch()` so sessions longer than ~1 hour don't silently fail
-4. **Session persistence** — store tokens in `expo-secure-store` (already installed) to avoid re-login on every app restart
-5. **SDOH write-back** — use self-reported answers + LOINC codes on `SDOH_QUESTIONS` to write Observation resources back to Epic (requires `patient/Observation.write` scope)
-6. **Allergies screen** — `AllergyIntolerance` data is already fetched; just needs a UI surface
+1. ~~**Resolve 403**~~ FIXED — added `.Search` API entries in Epic portal; Medications and SDOH data now loading successfully
+2. **Web deployment** — test `npx expo start --web`, fix web-specific issues, deploy to Vercel with `npx expo export:web`, register HTTPS redirect URI in Epic portal — goal is a shareable URL for hiring manager demo
+3. **Lab results screen** — `Observation?category=laboratory` is already fetched; surface it with AI explanations using the existing `explainLabResult()` method
+4. **Medication history** — fetch `MedicationDispense` (scope already added) for dispense history alongside active requests
+5. **Token refresh** — wire `oauthService.getValidAccessToken()` into `fhirService.fhirFetch()` so sessions longer than ~1 hour don't silently fail
+6. **Session persistence** — store tokens in `expo-secure-store` (already installed) to avoid re-login on every app restart
+7. **SDOH write-back** — use self-reported answers + LOINC codes on `SDOH_QUESTIONS` to write Observation resources back to Epic (requires `patient/Observation.write` scope)
+8. **Allergies screen** — `AllergyIntolerance` data is already fetched; just needs a UI surface

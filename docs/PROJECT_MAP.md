@@ -96,7 +96,7 @@ DischargeScreen (on mount, independent)
 
 ## Key Constants
 
-- **Client ID**: `ff7695f5-cef2-4c7e-9c14-e1bcab631eb4` (registered in Epic dev portal)
+- **Client ID**: `815f9183-d3e0-4a79-8662-047d8f359e31` (registered in Epic dev portal, R4, Patients audience)
 - **Sandbox patients**: Camila Lopez (`fhircamila`), Derrick Lin (`fhirderrick`), Timmy Smart (`fhirtimmy`) — all password `epicepic1`
 - **Quality measures tracked**: Flu Shot, Colorectal Screening, Breast Cancer Screening, HbA1c, Blood Pressure
 

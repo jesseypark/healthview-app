@@ -5,7 +5,7 @@ import * as AuthSession from 'expo-auth-session';
 // Register your app at https://fhir.epic.com/Developer/Apps to get a clientId.
 // ---------------------------------------------------------------------------
 
-export const CLIENT_ID = 'ff7695f5-cef2-4c7e-9c14-e1bcab631eb4';
+export const CLIENT_ID = '815f9183-d3e0-4a79-8662-047d8f359e31';
 
 export const EPIC_ENDPOINTS = {
   authorization: 'https://fhir.epic.com/interconnect-fhir-oauth/oauth2/authorize',

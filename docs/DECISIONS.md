@@ -52,7 +52,7 @@ This is a deliberate simplification noted in the code comment. Determining "over
 ## SDOH
 
 ### Two-layer SDOH: FHIR pull + self-report questionnaire
-The app distinguishes between SDOH data *already in the Epic record* (fetched via `social-history`/`survey` Observations and Z-code Conditions) and SDOH data *self-reported by the patient* via the in-app questionnaire. The FHIR data is displayed in a collapsible section on the Dashboard. The self-report result is merged into `patientContext` via `aiService.addSDOHAnswers()` to enrich AI prompts.
+The app distinguishes between SDOH data *already in the Epic record* (fetched via `social-history`/`survey` Observations and Z-code Conditions) and SDOH data *self-reported by the patient* via the in-app questionnaire. Both data sources are used exclusively as AI context — they feed into `aiService.buildPatientContext()` and `aiService.addSDOHAnswers()` to personalize care gap explanations. No raw SDOH data is displayed in the UI (the collapsible "Social Health Data from Epic" section was removed in session 7 — the data only needs to inform AI guidance, not be shown directly).
 
 ### SDOH questionnaire answers are in-memory only
 The `SDOHScreen` returns its result via `route.params.onComplete` callback. DashboardScreen stores it in `useState`. There is no persistence — answers are lost on app restart. `expo-secure-store` is installed but not used for this.
@@ -81,6 +81,9 @@ When a FHIR request 403s, the first diagnostic is the `scope` field on the raw t
 
 ### Epic scope strings are coarser than Epic's actual per-subtype authorization
 Even after a scope like `patient/MedicationRequest.read` appears in the granted `scope` field, the request can still 403 if the query parameters don't match the specific Epic "Incoming API" subtype that was checked in the portal (e.g., "Outside Record", "Signed Medication Order", "Patient Chart", "Orders", "Problems"). Each subtype only authorizes a specific category/status combination. Workarounds: drop server-side `status=` filters and filter client-side; use `category=problem-list-item` for "Problems"-scope Condition queries; etc. Confirmed session 6 against the Epic open sandbox.
+
+### Epic requires BOTH `.Read` AND `.Search` Incoming API entries
+Epic's portal lists separate `.Read` and `.Search` API entries for each resource subtype (e.g., `Observation.Read (Labs) (R4)` and `Observation.Search (Labs) (R4)`). The SMART on FHIR spec says `patient/X.read` covers both read and search, but Epic enforces its own per-API authorization on top. Without the `.Search` entries, only direct reads-by-ID (like `Patient/{id}`) succeed; all query-based calls (`?patient=`) return 403 `insufficient_scope`. Diagnosed in session 7 via [SMART on FHIR Google Group thread](https://groups.google.com/g/smart-on-fhir/c/jJqF8dZ76Js).
 
 ### SDOHScreen communicates back via callback, not params
 Instead of `navigation.navigate('Dashboard', { sdohResult })`, the SDOH screen calls `route.params.onComplete(result)` before `navigation.goBack()`. This keeps the Dashboard's state management self-contained and avoids issues with React Navigation's param merging behavior on `goBack`.

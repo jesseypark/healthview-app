@@ -31,8 +31,7 @@ const DashboardScreen = ({ navigation }) => {
   const [summary, setSummary] = useState(null);
   const [patientContext, setPatientContext] = useState(null);
   const [providerPhone, setProviderPhone] = useState(null);
-  const [sdohResult, setSDOHResult] = useState(null); // self-reported questionnaire answers
-  const [sdohFhirData, setSDOHFhirData] = useState(null); // FHIR SDOH data
+  const [sdohResult, setSDOHResult] = useState(null);
   const [sdohBannerDismissed, setSDOHBannerDismissed] = useState(false);
 
   // Load data on mount
@@ -51,9 +50,6 @@ const DashboardScreen = ({ navigation }) => {
       // Fetch provider phone number
       const phone = await fhirService.getProviderPhone(data.patient);
       setProviderPhone(phone);
-
-      // Store SDOH FHIR data
-      setSDOHFhirData(data.sdoh);
 
       // Build patient context for AI (includes FHIR SDOH data)
       const context = aiService.buildPatientContext(data.patient, data.conditions, data.sdoh);
@@ -316,10 +312,6 @@ const DashboardScreen = ({ navigation }) => {
           </View>
         )}
 
-        {/* SDOH FHIR Data Section */}
-        {sdohFhirData && (
-          <SDOHDataSection sdohFhirData={sdohFhirData} />
-        )}
 
         {/* Educational Footer */}
         <View style={styles.educationalFooter}>
@@ -586,191 +578,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6366F1',
     fontWeight: '600',
-  },
-});
-
-// ─── SDOH FHIR Data Section ───────────────────────────────────────────────────
-
-const SDOHDataSection = ({ sdohFhirData }) => {
-  const [expanded, setExpanded] = useState(false);
-
-  const { socialHistory = [], surveys = [], zCodeConditions = [] } = sdohFhirData;
-  const totalItems = socialHistory.length + surveys.length + zCodeConditions.length;
-
-  if (totalItems === 0) return null;
-
-  const renderObservation = (obs, index) => {
-    const name = obs.code?.coding?.[0]?.display || obs.code?.text || 'Unknown';
-    const value = obs.valueCodeableConcept?.text
-      || obs.valueCodeableConcept?.coding?.[0]?.display
-      || (obs.valueQuantity ? `${obs.valueQuantity.value} ${obs.valueQuantity.unit ?? ''}`.trim() : null)
-      || obs.valueString
-      || '—';
-    const date = obs.effectiveDateTime
-      ? new Date(obs.effectiveDateTime).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
-      : null;
-
-    return (
-      <View key={index} style={sdohStyles.dataRow}>
-        <View style={sdohStyles.dataRowLeft}>
-          <Text style={sdohStyles.dataName}>{name}</Text>
-          {date && <Text style={sdohStyles.dataDate}>{date}</Text>}
-        </View>
-        <Text style={sdohStyles.dataValue}>{value}</Text>
-      </View>
-    );
-  };
-
-  const renderCondition = (cond, index) => {
-    const name = cond.code?.coding?.[0]?.display || cond.code?.text || 'Unknown';
-    const code = cond.code?.coding?.[0]?.code;
-    return (
-      <View key={index} style={sdohStyles.dataRow}>
-        <View style={sdohStyles.dataRowLeft}>
-          <Text style={sdohStyles.dataName}>{name}</Text>
-          {code && <Text style={sdohStyles.dataDate}>{code}</Text>}
-        </View>
-        <Text style={sdohStyles.dataValue}>Documented</Text>
-      </View>
-    );
-  };
-
-  return (
-    <View style={sdohStyles.container}>
-      <TouchableOpacity
-        style={sdohStyles.header}
-        onPress={() => setExpanded(e => !e)}
-        activeOpacity={0.7}
-      >
-        <View style={sdohStyles.headerLeft}>
-          <Text style={sdohStyles.headerIcon}>🌐</Text>
-          <View>
-            <Text style={sdohStyles.headerTitle}>Social Health Data from Epic</Text>
-            <Text style={sdohStyles.headerSubtitle}>{totalItems} record{totalItems !== 1 ? 's' : ''} found in your chart</Text>
-          </View>
-        </View>
-        <Text style={sdohStyles.expandIcon}>{expanded ? '▲' : '▼'}</Text>
-      </TouchableOpacity>
-
-      {expanded && (
-        <View style={sdohStyles.body}>
-          {socialHistory.length > 0 && (
-            <View style={sdohStyles.group}>
-              <Text style={sdohStyles.groupTitle}>Social History</Text>
-              {socialHistory.map(renderObservation)}
-            </View>
-          )}
-          {surveys.length > 0 && (
-            <View style={sdohStyles.group}>
-              <Text style={sdohStyles.groupTitle}>Screening Surveys</Text>
-              {surveys.map(renderObservation)}
-            </View>
-          )}
-          {zCodeConditions.length > 0 && (
-            <View style={sdohStyles.group}>
-              <Text style={sdohStyles.groupTitle}>Social Conditions (Z-Codes)</Text>
-              {zCodeConditions.map(renderCondition)}
-            </View>
-          )}
-          <Text style={sdohStyles.footer}>
-            Epic can store SDOH data including food security, housing, transportation,
-            employment, social support, and stress — mapped to LOINC codes and ICD-10 Z-codes.
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-};
-
-const sdohStyles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginBottom: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  headerIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  expandIcon: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  body: {
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    padding: 16,
-  },
-  group: {
-    marginBottom: 16,
-  },
-  groupTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6366F1',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 10,
-  },
-  dataRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  dataRowLeft: {
-    flex: 1,
-    marginRight: 12,
-  },
-  dataName: {
-    fontSize: 13,
-    color: '#374151',
-    lineHeight: 18,
-  },
-  dataDate: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    marginTop: 2,
-  },
-  dataValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1F2937',
-    textAlign: 'right',
-    maxWidth: '40%',
-  },
-  footer: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    lineHeight: 18,
-    marginTop: 8,
-    fontStyle: 'italic',
   },
 });
 
