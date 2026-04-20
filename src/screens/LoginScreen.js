@@ -13,6 +13,7 @@ import { StatusBar } from 'expo-status-bar';
 import oauthService from '../services/oauthService';
 import fhirService from '../services/fhirService';
 import { SANDBOX_TEST_USERS, REDIRECT_URI } from '../constants/epicConfig';
+import Avatar from '../components/Avatar';
 
 export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
@@ -53,16 +54,15 @@ export default function LoginScreen({ navigation }) {
         {/* Features */}
         <View style={styles.features}>
           {[
-            { icon: '📊', title: 'Care Gap Tracking', desc: "See which screenings and tests you're due for" },
-            { icon: '🤖', title: 'AI Explanations',   desc: 'Understand your health data in plain language' },
-            { icon: '🔒', title: 'Secure Access',      desc: 'Your data stays private with SMART on FHIR' },
-          ].map(({ icon, title, desc }) => (
-            <View key={title} style={styles.feature}>
-              <Text style={styles.featureIcon}>{icon}</Text>
-              <View style={styles.featureText}>
-                <Text style={styles.featureTitle}>{title}</Text>
-                <Text style={styles.featureDesc}>{desc}</Text>
+            { icon: '✨', text: 'Personalized AI insights for your medications and preventative care', color: '#818CF8' },
+            { icon: '💊', text: 'View your medications, refill history, and drug interactions', color: '#34D399' },
+            { icon: '🔒', text: 'Securely connected to your Epic health record', color: '#FBBF24' },
+          ].map(({ icon, text, color }) => (
+            <View key={text} style={styles.feature}>
+              <View style={[styles.featureIconWrap, { backgroundColor: color + '15' }]}>
+                <Text style={styles.featureIcon}>{icon}</Text>
               </View>
+              <Text style={styles.featureDesc}>{text}</Text>
             </View>
           ))}
         </View>
@@ -80,8 +80,8 @@ export default function LoginScreen({ navigation }) {
             </View>
           ) : (
             <>
-              <Text style={styles.loginButtonText}>Connect with Epic</Text>
-              <Text style={styles.loginButtonSub}>Secure login via MyChart</Text>
+              <Text style={styles.loginButtonText}>Log In with Epic</Text>
+              <Text style={styles.loginButtonSub}>Use a test account below to sign in</Text>
             </>
           )}
         </TouchableOpacity>
@@ -95,16 +95,21 @@ export default function LoginScreen({ navigation }) {
 
         {/* Sandbox info */}
         <View style={styles.sandboxBox}>
-          <Text style={styles.sandboxTitle}>🧪 Sandbox Mode</Text>
+          <Text style={styles.sandboxTitle}>🔑 Test Accounts</Text>
           <Text style={styles.sandboxDesc}>
-            This demo connects to Epic's test environment.{'\n'}Use these credentials after login:
+            After tapping "Log In", enter one of these credentials on the Epic login page:
           </Text>
           {SANDBOX_TEST_USERS.map((u) => (
             <View key={u.username} style={styles.testUser}>
-              <Text style={styles.testUserName}>{u.name}</Text>
-              <Text style={styles.testUserCreds}>
-                {u.username} / {u.password}
-              </Text>
+              <View style={styles.testUserHeader}>
+                <Avatar initials={u.initials} size={44} gradient={u.gradient} />
+                <View style={styles.testUserInfo}>
+                  <Text style={styles.testUserName}>{u.name}</Text>
+                  <Text style={styles.testUserCreds}>
+                    {u.username} / {u.password}
+                  </Text>
+                </View>
+              </View>
               <Text style={styles.testUserDesc}>{u.description}</Text>
             </View>
           ))}
@@ -138,16 +143,18 @@ const styles = StyleSheet.create({
   title: { fontSize: 36, fontWeight: '800', color: '#FFFFFF', marginBottom: 12 },
   subtitle: { fontSize: 16, color: '#94A3B8', textAlign: 'center', lineHeight: 24 },
 
-  features: { marginBottom: 40 },
+  features: { marginBottom: 32, paddingHorizontal: 4 },
   feature: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#1E293B', padding: 16,
-    borderRadius: 12, marginBottom: 12,
+    marginBottom: 14,
   },
-  featureIcon: { fontSize: 32, marginRight: 16 },
-  featureText: { flex: 1 },
-  featureTitle: { fontSize: 16, fontWeight: '600', color: '#FFFFFF', marginBottom: 4 },
-  featureDesc: { fontSize: 14, color: '#94A3B8' },
+  featureIconWrap: {
+    width: 38, height: 38, borderRadius: 10,
+    justifyContent: 'center', alignItems: 'center',
+    marginRight: 14,
+  },
+  featureIcon: { fontSize: 18 },
+  featureDesc: { fontSize: 14, color: '#CBD5E1', flex: 1, lineHeight: 20 },
 
   loginButton: {
     backgroundColor: '#6366F1', paddingVertical: 18,
@@ -176,8 +183,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#334155', padding: 12,
     borderRadius: 8, marginBottom: 8,
   },
-  testUserName: { fontSize: 14, fontWeight: '600', color: '#FFFFFF', marginBottom: 4 },
-  testUserCreds: { fontSize: 12, color: '#10B981', fontFamily: 'monospace', marginBottom: 4 },
+  testUserHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  testUserInfo: { marginLeft: 12, flex: 1 },
+  testUserName: { fontSize: 14, fontWeight: '600', color: '#FFFFFF', marginBottom: 2 },
+  testUserCreds: { fontSize: 12, color: '#10B981', fontFamily: 'monospace' },
   testUserDesc: { fontSize: 12, color: '#94A3B8' },
 
   debugBox: {

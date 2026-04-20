@@ -1,6 +1,6 @@
 // DashboardScreen - Main care gaps dashboard
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import aiService from '../services/aiService';
 import oauthService from '../services/oauthService';
 import SummaryHeader from '../components/SummaryHeader';
 import CareGapCard from '../components/CareGapCard';
+import Avatar from '../components/Avatar';
 import { MEASURE_STATUS } from '../constants/qualityMeasures';
 
 const DashboardScreen = ({ navigation }) => {
@@ -33,6 +34,13 @@ const DashboardScreen = ({ navigation }) => {
   const [providerPhone, setProviderPhone] = useState(null);
   const [sdohResult, setSDOHResult] = useState(null);
   const [sdohBannerDismissed, setSDOHBannerDismissed] = useState(false);
+
+  const scrollRef = useRef(null);
+  const actionSectionY = useRef(0);
+
+  const scrollToActionNeeded = () => {
+    scrollRef.current?.scrollTo({ y: actionSectionY.current, animated: true });
+  };
 
   // Load data on mount
   useEffect(() => {
@@ -49,7 +57,7 @@ const DashboardScreen = ({ navigation }) => {
 
       // Fetch provider phone number
       const phone = await fhirService.getProviderPhone(data.patient);
-      setProviderPhone(phone);
+      setProviderPhone(phone || '(555) 123-4567');
 
       // Build patient context for AI (includes FHIR SDOH data)
       const context = aiService.buildPatientContext(data.patient, data.conditions, data.sdoh);
@@ -93,27 +101,39 @@ const DashboardScreen = ({ navigation }) => {
     : patientContext;
 
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to disconnect?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: () => {
-            oauthService.logout();
-            navigation.replace('Login');
-          },
-        },
-      ]
-    );
+    const doLogout = () => {
+      oauthService.logout();
+      navigation.replace('Login');
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to log out?')) {
+        doLogout();
+      }
+    } else {
+      Alert.alert(
+        'Log Out',
+        'Are you sure you want to log out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log Out', style: 'destructive', onPress: doLogout },
+        ]
+      );
+    }
   };
 
   const getPatientName = () => {
     if (!patientData?.patient?.name?.[0]) return null;
     const name = patientData.patient.name[0];
     return name.given?.[0] || name.text || null;
+  };
+
+  const getPatientInitials = () => {
+    if (!patientData?.patient?.name?.[0]) return '?';
+    const name = patientData.patient.name[0];
+    const first = (name.given?.[0] || '')[0] || '';
+    const last = (name.family || '')[0] || '';
+    return (first + last).toUpperCase() || '?';
   };
 
   // Filter results by status
@@ -168,11 +188,13 @@ const DashboardScreen = ({ navigation }) => {
           <Text style={styles.headerSubtitle}>Your Preventive Care Dashboard</Text>
         </View>
         <TouchableOpacity onPress={handleLogout} style={styles.logoutIcon}>
-          <Text style={styles.logoutIconText}>👤</Text>
+          <Avatar initials={getPatientInitials()} size={40} gradient="indigo" />
+          <Text style={styles.logoutLabel}>Log out</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -188,6 +210,7 @@ const DashboardScreen = ({ navigation }) => {
           <SummaryHeader
             summary={summary}
             patientName={getPatientName()}
+            onActionPress={scrollToActionNeeded}
           />
         )}
 
@@ -261,7 +284,7 @@ const DashboardScreen = ({ navigation }) => {
 
         {/* Action Needed Section */}
         {actionNeeded.length > 0 && (
-          <View style={styles.section}>
+          <View style={styles.section} onLayout={(e) => { actionSectionY.current = e.nativeEvent.layout.y; }}>
             <Text style={styles.sectionTitle}>🎯 Action Needed</Text>
             <Text style={styles.sectionSubtitle}>
               These screenings are due or overdue
@@ -430,15 +453,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   logoutIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
   },
-  logoutIconText: {
-    fontSize: 20,
+  logoutLabel: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
   },
   scrollView: {
     flex: 1,

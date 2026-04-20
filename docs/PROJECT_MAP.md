@@ -2,7 +2,7 @@
 
 ## What This App Is
 
-A React Native (Expo) patient-facing health dashboard. It authenticates with Epic via SMART on FHIR (OAuth 2.0 + PKCE), fetches the patient's clinical data from the Epic FHIR R4 API, analyzes it against preventive care quality measures, and presents care gaps with AI-powered plain-language explanations. Built as a portfolio project.
+A React Native (Expo) patient-facing health dashboard. It authenticates with Epic via SMART on FHIR (OAuth 2.0 + PKCE), fetches the patient's clinical data from the Epic FHIR R4 API, analyzes it against preventive care quality measures, and presents care gaps with AI-powered plain-language explanations. Built with React Native and Expo.
 
 ## Tech Stack
 
@@ -13,6 +13,7 @@ A React Native (Expo) patient-facing health dashboard. It authenticates with Epi
 | Auth | expo-auth-session (PKCE flow) |
 | FHIR API | Epic open sandbox — `fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4` |
 | AI | Anthropic Claude API (`claude-sonnet-4-20250514`) — direct from client |
+| Hosting | Vercel (static export via `npx expo export --platform web`) |
 | Language | JavaScript (no TypeScript) |
 | Tests | None |
 
@@ -32,20 +33,22 @@ healthview-app/
 │   ├── constants/
 │   │   ├── epicConfig.js           # OAuth endpoints, client ID, scopes, REDIRECT_URI, sandbox test users
 │   │   ├── qualityMeasures.js      # QUALITY_MEASURES map + MEASURE_STATUS enum + getStatusDisplay()
-│   │   └── sdohQuestions.js        # SDOH_QUESTIONS array (6 questions, PRAPARE/AHC-based) + EPIC_SDOH_FHIR_SOURCES
+│   │   ├── sdohQuestions.js        # SDOH_QUESTIONS array (6 questions, PRAPARE/AHC-based) + EPIC_SDOH_FHIR_SOURCES
+│   │   └── drugInfo.js             # Drug knowledge base: purpose, side effects, interactions, tips per medication
 │   ├── services/
 │   │   ├── oauthService.js         # OAuth 2.0 PKCE flow; authenticate(), refresh, logout, isAuthenticated()
 │   │   ├── fhirService.js          # All Epic FHIR calls; singleton; holds accessToken + patientId after login
 │   │   ├── careGapsService.js      # Analyzes patientData against QUALITY_MEASURES; returns scored results
 │   │   └── aiService.js            # Claude API calls; builds prompts; has fallback if no API key
 │   ├── screens/
-│   │   ├── LoginScreen.js          # Entry point; triggers OAuth; shows sandbox credentials + debug URI
+│   │   ├── LoginScreen.js          # Entry point; triggers OAuth; shows test account credentials + debug URI
 │   │   ├── DashboardScreen.js      # Main screen; fetches all data; renders care gaps + quick-access cards
 │   │   ├── SDOHScreen.js           # Modal; 6-question SDOH self-screen; returns result via route.params.onComplete
-│   │   ├── MedicationsScreen.js    # Active MedicationRequests; per-med expand with AI explanation + refill button
+│   │   ├── MedicationsScreen.js    # Active MedicationRequests + dispense history; DailyMed pill images, AI insight, DailyMed link, refill button
 │   │   └── DischargeScreen.js      # Inpatient encounters + post-discharge checklist (interactive)
 │   └── components/
-│       ├── SummaryHeader.js        # Preventive care score card (% complete, stat counters)
+│       ├── Avatar.js               # Gradient circle avatar with white initials (uses expo-linear-gradient)
+│       ├── SummaryHeader.js        # Greeting + tappable "X screenings need attention" banner (scrolls to Action Needed)
 │       └── CareGapCard.js          # Expandable card per quality measure; fetches AI explanation on expand
 ```
 
@@ -83,6 +86,7 @@ DashboardScreen (on mount)
 
 MedicationsScreen (on mount, independent)
   └── fhirService.getMedications()
+  └── fhirService.getMedicationDispenses()   (last refill date)
 
 DischargeScreen (on mount, independent)
   └── fhirService.getEncounters()
@@ -97,7 +101,7 @@ DischargeScreen (on mount, independent)
 ## Key Constants
 
 - **Client ID**: `815f9183-d3e0-4a79-8662-047d8f359e31` (registered in Epic dev portal, R4, Patients audience)
-- **Sandbox patients**: Camila Lopez (`fhircamila`), Derrick Lin (`fhirderrick`), Timmy Smart (`fhirtimmy`) — all password `epicepic1`
+- **Sandbox patients**: Jason Argonaut (`fhirjason`, best for medication AI), Derrick Lin (`fhirderrick`, best for care gap AI) — password `epicepic1`
 - **Quality measures tracked**: Flu Shot, Colorectal Screening, Breast Cancer Screening, HbA1c, Blood Pressure
 
 ---
@@ -114,6 +118,7 @@ DischargeScreen (on mount, independent)
 | Immunization | `?patient=` | Flu shot |
 | AllergyIntolerance | `?patient=` | Fetched, not yet surfaced in UI |
 | MedicationRequest | `?patient=&status=active` | Medications screen + Discharge card |
+| MedicationDispense | `?patient=` | Last refill date on Medications screen |
 | Procedure | `?patient=&status=completed` | Colonoscopy / mammogram care gap measures |
 | Encounter | `?patient=&_sort=-date&_count=20` | Discharge screen (filtered client-side for IMP/EMER/ACUTE) |
 | DocumentReference | `?patient=&type=18842-5&_sort=-date&_count=10` | Discharge summary documents |

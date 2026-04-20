@@ -47,21 +47,19 @@ export const SCOPES = [
 // ---------------------------------------------------------------------------
 export const SANDBOX_TEST_USERS = [
   {
-    name: 'Camila Lopez',
-    username: 'fhircamila',
+    name: 'Jason Argonaut',
+    username: 'fhirjason',
     password: 'epicepic1',
-    description: 'Adult female with diabetes, hypertension',
+    description: 'Best for medication AI summaries and refill history',
+    initials: 'JA',
+    gradient: 'blue',
   },
   {
     name: 'Derrick Lin',
     username: 'fhirderrick',
     password: 'epicepic1',
-    description: 'Adult male with various conditions',
-  },
-  {
-    name: 'Timmy Smart',
-    username: 'fhirtimmy',
-    password: 'epicepic1',
-    description: 'Pediatric patient',
+    description: 'Best for care gap AI summaries (older male, heart conditions)',
+    initials: 'DL',
+    gradient: 'teal',
   },
 ];

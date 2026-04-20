@@ -39,10 +39,10 @@ This is a deliberate simplification noted in the code comment. Determining "over
 ## AI Integration
 
 ### Direct client-side API calls (no backend)
-`aiService.js` calls the Anthropic API directly from the React Native app with a hardcoded API key placeholder. The comment explicitly flags this as demo-only — in production, calls should go through a backend. The fallback path (`if (this.apiKey === 'YOUR_ANTHROPIC_API_KEY_HERE')`) generates a deterministic non-AI explanation so the app is fully usable without a real key.
+`aiService.js` calls the Anthropic API directly from the React Native app with a hardcoded API key placeholder. In production, calls should go through a backend to protect the API key. The fallback path (`if (this.apiKey === 'YOUR_ANTHROPIC_API_KEY_HERE')`) generates a deterministic non-AI explanation so the app is fully usable without a real key.
 
-### AI is lazy-loaded per card
-`CareGapCard` only calls `aiService.explainCareGap()` when the card is first expanded, and only once (guarded by `if (!expanded && !aiExplanation)`). Same pattern in `MedicationCard`. This avoids firing N API calls on Dashboard load and keeps the UX snappy.
+### AI is lazy-loaded per card, with SDOH-triggered refresh
+`CareGapCard` calls `aiService.explainCareGap()` when the card is first expanded (guarded by `if (!expanded && !aiExplanation)`). Same pattern in `MedicationCard`. This avoids firing N API calls on Dashboard load and keeps the UX snappy. Care gap cards also watch `patientContext.sdohNeedsIdentified` via a `useEffect` and refetch when the quiz is completed or edited, so insights update live without requiring a page reload.
 
 ### Patient context is a plain object, not passed through navigation
 `patientContext` is built once in DashboardScreen and passed down to child components via props (and to Medications/Discharge via `route.params`). It's a simple `{ age, gender, conditions, sdohObservations, sdohSelfReported? }` object — no context API or global state.
@@ -84,6 +84,33 @@ Even after a scope like `patient/MedicationRequest.read` appears in the granted 
 
 ### Epic requires BOTH `.Read` AND `.Search` Incoming API entries
 Epic's portal lists separate `.Read` and `.Search` API entries for each resource subtype (e.g., `Observation.Read (Labs) (R4)` and `Observation.Search (Labs) (R4)`). The SMART on FHIR spec says `patient/X.read` covers both read and search, but Epic enforces its own per-API authorization on top. Without the `.Search` entries, only direct reads-by-ID (like `Patient/{id}`) succeed; all query-based calls (`?patient=`) return 403 `insufficient_scope`. Diagnosed in session 7 via [SMART on FHIR Google Group thread](https://groups.google.com/g/smart-on-fhir/c/jJqF8dZ76Js).
+
+### No pill images (no viable API)
+The NIH RxImage API was retired in 2021. DailyMed's SPL API was investigated as a replacement, but its images are chemical structure diagrams, pharmacokinetics graphs, and packaging labels — not actual pill photos. No free, CORS-friendly API provides real pill photographs. Medication cards show a pill emoji instead.
+
+### DailyMed as the medication "learn more" link
+Medication cards link to `dailymed.nlm.nih.gov/dailymed/search.cfm` (NIH/NLM). DailyMed provides FDA-approved drug labeling and is the most reliable NIH drug information search. Drug names with hyphens are converted to spaces for the search (e.g., "amphetamine-dextroamphetamine" → "amphetamine dextroamphetamine"). Replaced MedlinePlus search which was returning "page not found" errors.
+
+### Drug knowledge base for AI fallback
+`drugInfo.js` contains a curated database of common medications with purpose, side effects, contraindications, and practical tips sourced from FDA labels and clinical pharmacology references. When the Claude API key is not configured, `aiService.buildFallbackMedicationExplanation()` uses this database to produce concise, personalized insights. The insight connects each drug to the patient's actual conditions via `_connectDrugToConditions()` (e.g., "You're taking this for your Essential hypertension"), adds combo therapy notes for related medications via `_getComboNote()`, then shows only the most critical warning and one tip — keeping total output to ~3-4 sentences. The `findDrugInfo()` lookup prefers longer (more specific) matches so "lisinopril-hydrochlorothiazide" matches its combo entry rather than plain "lisinopril".
+
+### Care gap "✨ Personalized AI Insights" = whyItMatters + personalized content in one section
+`CareGapCard` previously had separate "Why This Matters" and "Personalized AI Insight" sections. These are now merged into a single "✨ Personalized AI Insights" section that shows `measure.whyItMatters` (general stats) followed by personalized content from `_getMeasureSpecificContent()` which connects the screening to the patient's specific conditions and medications. The personalized content avoids repeating what `whyItMatters` already covers, focusing instead on why THIS patient specifically needs to act. The same section title is used on medication cards for consistency.
+
+### SDOH quiz picks the single most relevant need per care gap
+`_buildSDOHNote()` in `aiService.js` selects only the highest-impact SDOH need for each measure, not all of them. Each measure has a priority-ordered list (e.g., for blood pressure: Stress > Housing > Food > Financial > Transportation) reflecting which social factor most directly affects that health outcome. The method picks the first match from the patient's quiz results and appends one natural sentence. This avoids the robotic feel of addressing every quiz answer and keeps insights focused.
+
+### Provider phone falls back to placeholder number
+Epic sandbox test patients typically don't have a `generalPractitioner` reference, so `getProviderPhone()` returns `null`. DashboardScreen falls back to `(555) 123-4567` so "Schedule Appointment" and "Request Refill" buttons are always functional. A production app would remove the fallback and show a "contact your provider" message instead.
+
+### AI disclaimer shown outside the insight box
+Both care gap and medication cards show "AI-generated content may not be accurate. Verify with your care team." in italic gray text below the blue-bordered AI insight container (not inside it). This is a standard responsible-AI pattern. Positioned outside the box so it reads as a system-level caveat rather than part of the AI-generated content itself.
+
+### Percent circle removed from SummaryHeader
+The `percentComplete` value was mathematically correct but always showed 0% in the Epic sandbox because test patients don't have matching CPT/SNOMED procedure codes for colonoscopy, mammogram, etc. Showing "0%" on every patient was confusing and undermined trust in the dashboard. Replaced with a text-only "X of Y screenings up to date" summary. The `percentComplete` field is still computed in `careGapsService.getSummary()` if needed later.
+
+### Web deployment as static Vercel export
+The app is deployed to Vercel as a static site using `npx expo export --platform web`, which outputs to `dist/`. No server-side rendering or Vercel build step — the pre-built `dist/` folder is deployed directly. This works because the app has no server-side logic; all API calls (Epic FHIR, Claude) happen client-side. The Vercel project is named `healthview-app` and the production URL is `https://healthview-app.vercel.app`. To redeploy after changes: `npx expo export --platform web && npx vercel deploy dist/ --prod --yes`.
 
 ### SDOHScreen communicates back via callback, not params
 Instead of `navigation.navigate('Dashboard', { sdohResult })`, the SDOH screen calls `route.params.onComplete(result)` before `navigation.goBack()`. This keeps the Dashboard's state management self-contained and avoids issues with React Navigation's param merging behavior on `goBack`.

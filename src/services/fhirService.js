@@ -84,6 +84,16 @@ class FHIRService {
     return all.filter(m => m.status === 'active');
   }
 
+  // Fetch medication dispenses (fill history) for last refill date
+  async getMedicationDispenses() {
+    try {
+      const bundle = await this.fhirFetch(`/MedicationDispense?patient=${this.patientId}`);
+      return this.extractResources(bundle);
+    } catch {
+      return [];
+    }
+  }
+
   // Fetch inpatient encounters (IMP class = inpatient, EMER = emergency), most recent first
   async getEncounters() {
     const bundle = await this.fhirFetch(

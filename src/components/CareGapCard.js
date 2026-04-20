@@ -1,6 +1,6 @@
 // CareGapCard Component - Displays a single quality measure status
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,10 +20,31 @@ const CareGapCard = ({ measureResult, patientContext, providerPhone, onPress }) 
   const { measure, status, reason, lastCompleted, value, details } = measureResult;
   const statusDisplay = getStatusDisplay(status);
 
+  const prevSdohRef = useRef(patientContext?.sdohNeedsIdentified);
+  useEffect(() => {
+    const prev = prevSdohRef.current;
+    const curr = patientContext?.sdohNeedsIdentified;
+    if (prev !== curr) {
+      prevSdohRef.current = curr;
+      if (status === MEASURE_STATUS.NOT_APPLICABLE) return;
+      const refetch = async () => {
+        setLoading(true);
+        try {
+          const explanation = await aiService.explainCareGap(measureResult, patientContext);
+          setAiExplanation(explanation);
+        } catch (error) {
+          console.error('Error refreshing AI explanation:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      refetch();
+    }
+  }, [patientContext?.sdohNeedsIdentified]);
+
   const handlePress = async () => {
     setExpanded(!expanded);
-    
-    // Fetch AI explanation when expanding (only once)
+
     if (!expanded && !aiExplanation && status !== MEASURE_STATUS.NOT_APPLICABLE) {
       setLoading(true);
       try {
@@ -82,29 +103,26 @@ const CareGapCard = ({ measureResult, patientContext, providerPhone, onPress }) 
         <View style={styles.expandedContent}>
           <View style={styles.divider} />
           
-          {/* Why it matters */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Why This Matters</Text>
-            <Text style={styles.sectionText}>{measure.whyItMatters}</Text>
-          </View>
-
           {/* Recommended frequency */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Recommended Frequency</Text>
             <Text style={styles.sectionText}>{measure.frequency}</Text>
           </View>
 
-          {/* AI Explanation */}
+          {/* Combined AI Insights: whyItMatters + personalized insight */}
           {status !== MEASURE_STATUS.NOT_APPLICABLE && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>💬 Personalized Insight</Text>
+              <Text style={styles.sectionTitle}>✨ Personalized AI Insights</Text>
               {loading ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="small" color="#6366F1" />
-                  <Text style={styles.loadingText}>Getting personalized explanation...</Text>
+                  <Text style={styles.loadingText}>Getting personalized insights...</Text>
                 </View>
               ) : aiExplanation ? (
-                <Text style={styles.aiText}>{aiExplanation}</Text>
+                <>
+                  <Text style={styles.aiText}>{measure.whyItMatters + '\n\n' + aiExplanation}</Text>
+                  <Text style={styles.aiDisclaimer}>AI-generated content may not be accurate. Verify with your care team.</Text>
+                </>
               ) : null}
             </View>
           )}
@@ -267,6 +285,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderLeftWidth: 3,
     borderLeftColor: '#6366F1',
+  },
+  aiDisclaimer: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 6,
+    fontStyle: 'italic',
   },
   actionButton: {
     backgroundColor: '#6366F1',

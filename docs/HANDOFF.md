@@ -1,6 +1,6 @@
 # HANDOFF — HealthView
 
-Last updated: 2026-04-16 (session 7)
+Last updated: 2026-04-19 (session 12)
 
 ---
 
@@ -18,18 +18,21 @@ Last updated: 2026-04-16 (session 7)
 - Eligibility engine: age, gender, required conditions — gates before FHIR lookup
 - Per-measure AI explanation (Claude API) triggered lazily on card expand; graceful fallback if no API key
 - Care gaps sorted: OVERDUE → DUE → COMPLETE → N/A
-- Summary header: % complete, counts by status
+- Summary header: text-based summary + counts by status (% circle removed session 8)
 
 ### SDOH
 - 6-question self-screening questionnaire (PRAPARE/AHC-based, with LOINC codes)
 - FHIR SDOH data pull: social-history observations, survey observations, Z-code conditions
 - Both FHIR SDOH data and self-reported needs are merged into AI prompt context to personalize care gap explanations — no raw SDOH data is displayed in the UI (removed session 7)
+- All 6 quiz categories (Food Security, Housing, Transportation, Social Support, Financial Strain, Stress) now produce measure-specific insights across all care gaps (expanded session 11, previously only Transportation and Food were used in narrow cases)
 - Dashboard banner prompts questionnaire completion; badge shown after
 
-### Medications Screen (added 2026-04-13)
-- Fetches active `MedicationRequest` resources
-- Per-medication card: name, dosage, prescriber, authored date, refills allowed, validity end
-- AI explanation per medication (lazy, on expand)
+### Medications Screen (added 2026-04-13, updated session 8)
+- Fetches active `MedicationRequest` resources + `MedicationDispense` for refill history
+- Per-medication card: name, dosage, prescriber, authored date, refills allowed, validity end, **last refill date** (from MedicationDispense)
+- Pill icon (emoji) — pill images removed; no free API provides actual pill photos (DailyMed SPL images are chemical structures/labels, RxImage API was retired)
+- **Personalized AI Insight** per medication (lazy, on expand) — uses drug knowledge base (`drugInfo.js`) written in plain language (middle/high school reading level) with side effects, food/drink warnings, drug interactions, and practical tips; drug class recognition fallback for unknown medications
+- **"Learn more on DailyMed (NIH)"** link per medication opens NIH DailyMed drug search (replaced broken MedlinePlus search link in session 9)
 - "Request Refill" button calls provider phone via `tel:` deep link
 - 403 error state now shows a plain-language message directing the user to log out and re-authenticate
 
@@ -41,6 +44,33 @@ Last updated: 2026-04-16 (session 7)
 - Active care plans (`CarePlan`) listed if present
 - Interactive post-discharge checklist (6 items, progress bar, tap to check off)
 - Call provider button
+
+### Web Deployment (session 12)
+- Expo web export (`npx expo export --platform web`) builds successfully — static output in `dist/`
+- Deployed to Vercel at **https://healthview-app.vercel.app**
+- `react-dom` and `react-native-web` were already in dependencies; no code changes needed for web build
+- Epic OAuth redirect URI: `AuthSession.makeRedirectUri()` auto-detects the web origin — but the Vercel URL must be registered in Epic's developer portal for login to work on the deployed site
+
+### UX Improvements (session 11)
+- SDOH quiz now actually changes care gap AI insights: `_buildSDOHNote()` picks the single highest-impact social need per measure from a priority-ordered list and appends one natural sentence. Notes are deduplicated against base content to avoid repetition (e.g., colorectal base already mentions FIT test, so SDOH notes reference "the at-home option" instead)
+- Care gap insights auto-refresh when quiz is completed or edited. Previously, `CareGapCard` cached the explanation on first expand and never regenerated it. Now a `useEffect` watches `patientContext.sdohNeedsIdentified` and refetches when it changes
+- AI disclaimer added below insight box on both care gap cards and medication cards: "AI-generated content may not be accurate. Verify with your care team." (italic gray, outside the blue-bordered container)
+- Provider phone fallback: if FHIR `generalPractitioner` lookup returns no phone (common in Epic sandbox), defaults to `(555) 123-4567` so call buttons are always functional
+
+### UX Improvements (session 10)
+- Care gap "Why This Matters" and "Personalized AI Insight" merged into single "✨ Personalized AI Insights" section on care gap cards. Shows `whyItMatters` followed by personalized content connecting to patient's specific conditions/medications. SDOH-aware notes for transportation and food insecurity.
+- Medication AI insight section renamed to "✨ Personalized AI Insights" (matching care gaps). Insights cut in half and personalized: connects each drug to patient's actual conditions, highlights combo therapy, shows only top warning and one tip. Drug knowledge base (`drugInfo.js`) provides plain-language content at middle/high school reading level.
+- All em dashes removed from user-facing AI content (drug info, care gap insights, drug class patterns)
+- Gradient avatar component (`Avatar.js`) added using `expo-linear-gradient`. Shows patient initials in white on a diagonal gradient background. Used on login screen (test account cards) and dashboard (replaces 👤 emoji in logout area).
+- Login screen test accounts: Camila Lopez removed. Jason described as "Best for medication AI summaries and refill history", Derrick as "Best for care gap AI summaries (older male, heart conditions)". "BEST FOR" badge removed.
+- Login screen feature bullets redesigned: removed card-style backgrounds, now simple rows with tinted icon squares. Content updated to reflect current app ("preventative care", medications, secure Epic connection).
+- Pill images removed entirely — no free API provides actual pill photographs
+
+### UX Improvements (session 8–9)
+- Dashboard SummaryHeader simplified: just greeting + tappable "X screenings need attention" banner that scrolls to Action Needed section
+- Logout confirmation text changed from "disconnect" to "log out"
+- Dashboard: 👤 emoji replaced with gradient Avatar showing patient initials; labeled "Log out"
+- Login screen: button says "Log In with Epic" with instruction to use test accounts below
 
 ### Navigation
 - Login → Dashboard (replace, no back)
@@ -125,9 +155,9 @@ Individual screens have try/catch and error states, but there's no React error b
 ## Next Steps (priority order)
 
 1. ~~**Resolve 403**~~ FIXED — added `.Search` API entries in Epic portal; Medications and SDOH data now loading successfully
-2. **Web deployment** — test `npx expo start --web`, fix web-specific issues, deploy to Vercel with `npx expo export:web`, register HTTPS redirect URI in Epic portal — goal is a shareable URL for hiring manager demo
+2. ~~**Web deployment**~~ DONE (session 12) — deployed to Vercel at https://healthview-app.vercel.app; **remaining:** register `https://healthview-app.vercel.app` as redirect URI in Epic developer portal so OAuth login works on the deployed site
 3. **Lab results screen** — `Observation?category=laboratory` is already fetched; surface it with AI explanations using the existing `explainLabResult()` method
-4. **Medication history** — fetch `MedicationDispense` (scope already added) for dispense history alongside active requests
+4. ~~**Medication history**~~ DONE (session 8) — `MedicationDispense` fetched; last refill date shown on medication cards
 5. **Token refresh** — wire `oauthService.getValidAccessToken()` into `fhirService.fhirFetch()` so sessions longer than ~1 hour don't silently fail
 6. **Session persistence** — store tokens in `expo-secure-store` (already installed) to avoid re-login on every app restart
 7. **SDOH write-back** — use self-reported answers + LOINC codes on `SDOH_QUESTIONS` to write Observation resources back to Epic (requires `patient/Observation.write` scope)

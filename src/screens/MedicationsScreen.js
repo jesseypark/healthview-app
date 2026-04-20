@@ -16,10 +16,12 @@ import { StatusBar } from 'expo-status-bar';
 import fhirService from '../services/fhirService';
 import aiService from '../services/aiService';
 
+
 const MedicationsScreen = ({ navigation, route }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [medications, setMedications] = useState([]);
+  const [dispenses, setDispenses] = useState([]);
   const [error, setError] = useState(null);
 
   // Optional: patient context passed from Dashboard for AI explanations
@@ -33,8 +35,12 @@ const MedicationsScreen = ({ navigation, route }) => {
   const loadMedications = async () => {
     try {
       setError(null);
-      const meds = await fhirService.getMedications();
+      const [meds, disps] = await Promise.all([
+        fhirService.getMedications(),
+        fhirService.getMedicationDispenses(),
+      ]);
       setMedications(meds);
+      setDispenses(disps);
     } catch (err) {
       setError(err.message || 'Failed to load medications');
     } finally {
@@ -116,6 +122,8 @@ const MedicationsScreen = ({ navigation, route }) => {
             <MedicationCard
               key={med.id || index}
               med={med}
+              allMedications={medications}
+              dispenses={dispenses}
               patientContext={patientContext}
               providerPhone={providerPhone}
             />
@@ -135,7 +143,16 @@ const MedicationsScreen = ({ navigation, route }) => {
 
 // ─── Individual Medication Card ───────────────────────────────────────────────
 
-const MedicationCard = ({ med, patientContext, providerPhone }) => {
+// Extract a generic search-friendly drug name from the FHIR medication name
+const getGenericName = (medName) =>
+  medName.replace(/\s*[\[(].*?[\])]\s*/g, '').split(/\s+/)[0].replace(/-/g, ' ');
+
+// Build a DailyMed (NIH/NLM) search URL
+const getDailyMedUrl = (medName) => {
+  return `https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query=${encodeURIComponent(getGenericName(medName))}`;
+};
+
+const MedicationCard = ({ med, allMedications, dispenses, patientContext, providerPhone }) => {
   const [expanded, setExpanded] = useState(false);
   const [aiExplanation, setAiExplanation] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -152,12 +169,39 @@ const MedicationCard = ({ med, patientContext, providerPhone }) => {
     ? new Date(med.dispenseRequest.validityPeriod.end).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     : null;
 
+  // Find the most recent dispense (refill) for this medication
+  const lastRefillDate = React.useMemo(() => {
+    if (!dispenses || dispenses.length === 0) return null;
+    // Match dispenses to this medication by reference or name
+    const medRef = `MedicationRequest/${med.id}`;
+    const matching = dispenses.filter(d => {
+      if (d.authorizingPrescription?.some(p => p.reference === medRef)) return true;
+      // Fallback: match by medication name
+      const dispName = d.medicationCodeableConcept?.text
+        || d.medicationCodeableConcept?.coding?.[0]?.display
+        || '';
+      return dispName && name.toLowerCase().includes(dispName.toLowerCase().split(' ')[0]);
+    });
+    if (matching.length === 0) return null;
+    // Sort by whenHandedOver or whenPrepared, most recent first
+    matching.sort((a, b) => {
+      const dateA = new Date(a.whenHandedOver || a.whenPrepared || 0);
+      const dateB = new Date(b.whenHandedOver || b.whenPrepared || 0);
+      return dateB - dateA;
+    });
+    const date = matching[0].whenHandedOver || matching[0].whenPrepared;
+    return date
+      ? new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+      : null;
+  }, [med.id, name, dispenses]);
+
   const handleExpand = async () => {
     setExpanded(e => !e);
     if (!expanded && !aiExplanation) {
       setAiLoading(true);
       try {
-        const explanation = await aiService.explainMedication(name, dosage, patientContext);
+        const allMedNames = allMedications.map(m => fhirService.getMedicationName(m));
+        const explanation = await aiService.explainMedication(name, dosage, patientContext, allMedNames);
         setAiExplanation(explanation);
       } catch {
         // silent — no explanation shown
@@ -171,6 +215,10 @@ const MedicationCard = ({ med, patientContext, providerPhone }) => {
     if (providerPhone) {
       Linking.openURL(`tel:${providerPhone}`);
     }
+  };
+
+  const handleLearnMore = () => {
+    Linking.openURL(getDailyMedUrl(name));
   };
 
   return (
@@ -197,6 +245,9 @@ const MedicationCard = ({ med, patientContext, providerPhone }) => {
         {authoredOn && (
           <Text style={styles.metaText}>Since {authoredOn}</Text>
         )}
+        {lastRefillDate && (
+          <Text style={styles.metaText}>Last refill {lastRefillDate}</Text>
+        )}
       </View>
 
       {/* Expanded content */}
@@ -205,7 +256,7 @@ const MedicationCard = ({ med, patientContext, providerPhone }) => {
           <View style={styles.divider} />
 
           {/* Dispense details */}
-          {(refillsAllowed !== null || validityEnd) && (
+          {(refillsAllowed !== null || validityEnd || lastRefillDate) && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Prescription Details</Text>
               {refillsAllowed !== null && (
@@ -220,21 +271,35 @@ const MedicationCard = ({ med, patientContext, providerPhone }) => {
                   <Text style={styles.detailValue}>{validityEnd}</Text>
                 </View>
               )}
+              {lastRefillDate && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Last refill</Text>
+                  <Text style={styles.detailValue}>{lastRefillDate}</Text>
+                </View>
+              )}
             </View>
           )}
 
           {/* AI explanation */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>💬 About This Medication</Text>
+            <Text style={styles.sectionTitle}>✨ Personalized AI Insights</Text>
             {aiLoading ? (
               <View style={styles.aiLoading}>
                 <ActivityIndicator size="small" color="#6366F1" />
-                <Text style={styles.aiLoadingText}>Getting explanation...</Text>
+                <Text style={styles.aiLoadingText}>Getting personalized insight...</Text>
               </View>
             ) : aiExplanation ? (
-              <Text style={styles.aiText}>{aiExplanation}</Text>
+              <>
+                <Text style={styles.aiText}>{aiExplanation}</Text>
+                <Text style={styles.aiDisclaimer}>AI-generated content may not be accurate. Verify with your care team.</Text>
+              </>
             ) : null}
           </View>
+
+          {/* Learn more link */}
+          <TouchableOpacity style={styles.learnMoreButton} onPress={handleLearnMore}>
+            <Text style={styles.learnMoreText}>📖 Learn more on DailyMed (NIH)</Text>
+          </TouchableOpacity>
 
           {/* Refill request */}
           <TouchableOpacity
@@ -393,6 +458,10 @@ const styles = StyleSheet.create({
   },
   pillIcon: {
     marginRight: 12,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pillIconText: {
     fontSize: 24,
@@ -485,6 +554,27 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderLeftWidth: 3,
     borderLeftColor: '#6366F1',
+  },
+  aiDisclaimer: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  learnMoreButton: {
+    backgroundColor: '#F0F9FF',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    alignItems: 'center',
+  },
+  learnMoreText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1D4ED8',
   },
   refillButton: {
     backgroundColor: '#6366F1',
