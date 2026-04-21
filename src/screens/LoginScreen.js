@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,10 @@ export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  useEffect(() => {
+    oauthService.prepare().catch(() => {});
+  }, []);
+
   const handleLogin = async () => {
     setLoading(true);
     setError(null);
@@ -34,6 +38,7 @@ export default function LoginScreen({ navigation }) {
       Alert.alert('Login Failed', message, [{ text: 'OK' }]);
     } finally {
       setLoading(false);
+      oauthService.prepare().catch(() => {});
     }
   };
 

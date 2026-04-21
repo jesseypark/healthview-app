@@ -1,6 +1,6 @@
 # HANDOFF — HealthView
 
-Last updated: 2026-04-19 (session 12)
+Last updated: 2026-04-20 (session 13)
 
 ---
 
@@ -45,11 +45,14 @@ Last updated: 2026-04-19 (session 12)
 - Interactive post-discharge checklist (6 items, progress bar, tap to check off)
 - Call provider button
 
-### Web Deployment (session 12)
+### Web Deployment (session 12, updated session 13)
 - Expo web export (`npx expo export --platform web`) builds successfully — static output in `dist/`
 - Deployed to Vercel at **https://healthview-app.vercel.app**
 - `react-dom` and `react-native-web` were already in dependencies; no code changes needed for web build
-- Epic OAuth redirect URI: `AuthSession.makeRedirectUri()` auto-detects the web origin — but the Vercel URL must be registered in Epic's developer portal for login to work on the deployed site
+- `vercel.json` added: configures `buildCommand`, `outputDirectory: "dist"`, and SPA catch-all rewrite so `/callback` route serves `index.html` (without this, Epic's OAuth redirect to `/callback?code=...` returned Vercel 404)
+- Epic OAuth redirect URI registered in portal: `https://healthview-app.vercel.app/callback` (must match exactly — includes `/callback` path from `makeRedirectUri({ path: 'callback' })`)
+- Mobile OAuth: uses full-page redirect (`{ windowFeatures: { popup: false } }`) instead of popup — mobile browsers block `window.open()` when called after async work
+- Auth request pre-built on screen mount (`oauthService.prepare()`) so `promptAsync` fires immediately in the user gesture handler; re-prepared after cancel/error to avoid stale request on retry
 
 ### UX Improvements (session 11)
 - SDOH quiz now actually changes care gap AI insights: `_buildSDOHNote()` picks the single highest-impact social need per measure from a priority-ordered list and appends one natural sentence. Notes are deduplicated against base content to avoid repetition (e.g., colorectal base already mentions FIT test, so SDOH notes reference "the at-home option" instead)
@@ -155,7 +158,7 @@ Individual screens have try/catch and error states, but there's no React error b
 ## Next Steps (priority order)
 
 1. ~~**Resolve 403**~~ FIXED — added `.Search` API entries in Epic portal; Medications and SDOH data now loading successfully
-2. ~~**Web deployment**~~ DONE (session 12) — deployed to Vercel at https://healthview-app.vercel.app; **remaining:** register `https://healthview-app.vercel.app` as redirect URI in Epic developer portal so OAuth login works on the deployed site
+2. ~~**Web deployment**~~ DONE (session 12–13) — deployed to Vercel at https://healthview-app.vercel.app; OAuth login works on both desktop and mobile (redirect URI `https://healthview-app.vercel.app/callback` registered in Epic portal)
 3. **Lab results screen** — `Observation?category=laboratory` is already fetched; surface it with AI explanations using the existing `explainLabResult()` method
 4. ~~**Medication history**~~ DONE (session 8) — `MedicationDispense` fetched; last refill date shown on medication cards
 5. **Token refresh** — wire `oauthService.getValidAccessToken()` into `fhirService.fhirFetch()` so sessions longer than ~1 hour don't silently fail

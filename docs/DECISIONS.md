@@ -110,7 +110,13 @@ Both care gap and medication cards show "AI-generated content may not be accurat
 The `percentComplete` value was mathematically correct but always showed 0% in the Epic sandbox because test patients don't have matching CPT/SNOMED procedure codes for colonoscopy, mammogram, etc. Showing "0%" on every patient was confusing and undermined trust in the dashboard. Replaced with a text-only "X of Y screenings up to date" summary. The `percentComplete` field is still computed in `careGapsService.getSummary()` if needed later.
 
 ### Web deployment as static Vercel export
-The app is deployed to Vercel as a static site using `npx expo export --platform web`, which outputs to `dist/`. No server-side rendering or Vercel build step — the pre-built `dist/` folder is deployed directly. This works because the app has no server-side logic; all API calls (Epic FHIR, Claude) happen client-side. The Vercel project is named `healthview-app` and the production URL is `https://healthview-app.vercel.app`. To redeploy after changes: `npx expo export --platform web && npx vercel deploy dist/ --prod --yes`.
+The app is deployed to Vercel as a static site using `npx expo export --platform web`, which outputs to `dist/`. `vercel.json` configures `buildCommand` and `outputDirectory` so Vercel builds from source, plus a catch-all rewrite (`"source": "/(.*)"` → `/index.html`) so SPA routes like `/callback` don't 404. No server-side rendering — all API calls (Epic FHIR, Claude) happen client-side. The Vercel project is named `healthview-app` and the production URL is `https://healthview-app.vercel.app`. To redeploy after changes: `npx vercel --prod`.
+
+### OAuth uses full-page redirect on web, not popups
+`oauthService.promptAsync()` passes `{ windowFeatures: { popup: false } }` on web. Mobile browsers block `window.open()` when it's not in the immediate call stack of a user gesture — and the async PKCE setup (code challenge generation, `makeAuthUrlAsync`) breaks that chain. Full-page redirect avoids the problem entirely.
+
+### Auth request is pre-built on screen mount
+`oauthService.prepare()` builds the PKCE `AuthRequest` and generates the auth URL asynchronously on `LoginScreen` mount (via `useEffect`). When the user taps "Log In", `authenticate()` calls `promptAsync` immediately with no async delay, preserving the user gesture context for `window.open`. After any login attempt (success, cancel, or error), `prepare()` is called again so a fresh request is ready for retry.
 
 ### SDOHScreen communicates back via callback, not params
 Instead of `navigation.navigate('Dashboard', { sdohResult })`, the SDOH screen calls `route.params.onComplete(result)` before `navigation.goBack()`. This keeps the Dashboard's state management self-contained and avoids issues with React Navigation's param merging behavior on `goBack`.

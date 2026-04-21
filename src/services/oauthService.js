@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
 import {
   CLIENT_ID,
@@ -26,14 +27,13 @@ class OAuthService {
   }
 
   /**
-   * Performs the full OAuth 2.0 + PKCE authorization code flow.
-   * Returns { accessToken, patientId, expiresIn }.
+   * Pre-builds the PKCE auth request so authenticate() can fire promptAsync
+   * synchronously within a user gesture (required by mobile browsers).
+   * Call this on screen mount.
    */
-  async authenticate() {
-    console.log('[HealthView] authenticate() called');
-
-    // Build PKCE request manually so we can call it outside a React component.
-    const request = new AuthSession.AuthRequest({
+  async prepare() {
+    console.log('[HealthView] prepare() – building PKCE request');
+    this._pendingRequest = new AuthSession.AuthRequest({
       clientId: CLIENT_ID,
       scopes: SCOPES,
       redirectUri: REDIRECT_URI,
@@ -42,14 +42,28 @@ class OAuthService {
         aud: FHIR_BASE_URL,
       },
     });
-
-    console.log('[HealthView] AuthRequest built, generating auth URL…');
-
-    // Show the full authorization URL on both Android and web.
-    const authUrl = await request.makeAuthUrlAsync(discovery);
+    const authUrl = await this._pendingRequest.makeAuthUrlAsync(discovery);
     console.log('[HealthView] Authorization URL:', authUrl.toString());
-    // Prompt user with browser-based login.
-    const result = await request.promptAsync(discovery);
+  }
+
+  /**
+   * Performs the full OAuth 2.0 + PKCE authorization code flow.
+   * Must call prepare() first (ideally on screen mount).
+   * Returns { accessToken, patientId, expiresIn }.
+   */
+  async authenticate() {
+    console.log('[HealthView] authenticate() called');
+
+    if (!this._pendingRequest) {
+      await this.prepare();
+    }
+    const request = this._pendingRequest;
+    this._pendingRequest = null;
+
+    const promptOptions = Platform.OS === 'web'
+      ? { windowFeatures: { popup: false } }
+      : {};
+    const result = await request.promptAsync(discovery, promptOptions);
 
     if (result.type === 'cancel' || result.type === 'dismiss') {
       throw new Error('Login was cancelled.');
